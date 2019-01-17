@@ -13,7 +13,7 @@ import time
 # if ff_path not in sys.path:
 #     sys.path.append(ff_path)
 
-output_format = 'mp4'
+output_format = '.'
 
 setup_dict = {}
 setup_dict['n_in'] = 2
@@ -22,6 +22,7 @@ setup_dict['v_max'] = 20  # mb/s
 setup_dict['s_max'] = 200  # mb
 setup_dict['dt'] = 1  # s
 setup_dict['N_steps'] = 40
+setup_dict['v_delta_penalty'] = 0.1
 
 interp = 5
 

@@ -12,9 +12,23 @@ class optimal_traffic_scheduler:
         self.s_max = setup_dict['s_max']
         self.dt = setup_dict['dt']
         self.N_steps = setup_dict['N_steps']
+        self.v_delta_penalty = setup_dict['v_delta_penalty']
 
+        self.initialize_prediction()
         self.problem_formulation()
         self.create_optim()
+
+    def initialize_prediction(self):
+        v_out_traj = [np.zeros((self.n_out, 1))]*self.N_steps
+        s_traj = [np.zeros((self.n_out, 1))]*self.N_steps
+        bandwidth_traj = [np.zeros((1, 1))]*self.N_steps
+        memory_traj = [np.zeros((1, 1))]*self.N_steps
+
+        self.state = {}
+        self.state['v_out_traj'] = v_out_traj
+        self.state['s_traj'] = s_traj
+        self.state['bandwidth_traj'] = bandwidth_traj
+        self.state['memory_traj'] = memory_traj
 
     def problem_formulation(self):
 
@@ -69,6 +83,7 @@ class optimal_traffic_scheduler:
         v_in_k = []
         c_k = []
         v_out_k = []
+        v_out_k_delta = []
         cons_k = []
         bandwidth_load_k = []
         memory_load_k = []
@@ -85,6 +100,13 @@ class optimal_traffic_scheduler:
             v_in_k.append(SX.sym('v_in', self.n_in, 1))
             # Outgoing packet stream
             v_out_k.append(SX.sym('v_out', self.n_out, 1))
+            if k < self.N_steps-1:
+                v_out_k_delta = self.v_delta_penalty*sum1((v_out_k[k]-self.state['v_out_traj'][k+1])**2)/self.v_max
+            else:
+                v_out_k_delta = self.v_delta_penalty*sum1((v_out_k[k]-v_out_k[k-1])**2)/self.v_max
+
+            obj_k += v_out_k_delta
+
             # bandwidth / memory info outgoing servers
             bandwidth_load_k.append(SX.sym('bandwidth_load', self.n_out, 1))
             memory_load_k.append(SX.sym('memory_load', self.n_out, 1))
@@ -95,7 +117,7 @@ class optimal_traffic_scheduler:
             else:  # In suceeding steps use the previous s
                 s_k.append(self.mpc_problem['model'](v_in_k[k], v_out_k[k], s_k[k-1], c_k[k]))
 
-            # Add to the objective the "stage cost"
+            # Add the "stage cost" to the objective
             obj_k += self.mpc_problem['obj'](v_in_k[k], v_out_k[k],
                                              s_k[k], bandwidth_load_k[k], memory_load_k[k])
             # Constraints for the current step
@@ -138,13 +160,12 @@ class optimal_traffic_scheduler:
 
         memory_traj = [np.sum(s_k, keepdims=True)/self.s_max for s_k in s_traj]
 
-        output = {}
-        output['v_out_traj'] = v_out_traj
-        output['s_traj'] = s_traj
-        output['bandwidth_traj'] = bandwidth_traj
-        output['memory_traj'] = memory_traj
+        self.state['v_out_traj'] = v_out_traj
+        self.state['s_traj'] = s_traj
+        self.state['bandwidth_traj'] = bandwidth_traj
+        self.state['memory_traj'] = memory_traj
 
-        return output
+        return self.state
 
 
 # setup_dict = {}
