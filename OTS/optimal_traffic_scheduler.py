@@ -39,11 +39,6 @@ class optimal_traffic_scheduler:
 
     def problem_formulation(self):
 
-        # Problem dictionaries:
-        param_dict = {}
-        state_dict = {}
-        cntrl_dict = {}
-
         # Composition Matrix
         c = SX.sym('c', self.n_out, self.n_in)
 
@@ -61,6 +56,7 @@ class optimal_traffic_scheduler:
 
         # system dynamics, constraints and objective definition:
         s_next = s + self.dt*(c@v_in-v_out)
+        # Note: cons <= 0
         cons = [
             # maximum bandwidth cant be exceeded
             sum1(v_in)+sum1(v_out) - self.v_max,
@@ -167,7 +163,9 @@ class optimal_traffic_scheduler:
 
         memory_traj = [np.sum(s_k, keepdims=True)/self.s_max for s_k in s_traj]
 
+        self.predict['v_in'] = v_in_traj
         self.predict['v_out'] = v_out_traj
+        self.predict['c'] = c_traj
         self.predict['s'] = s_traj
         self.predict['bandwidth_load'] = bandwidth_traj
         self.predict['memory_load'] = memory_traj
@@ -202,6 +200,8 @@ class ots_plotter:
         self.ax['out_load'] = [plt.subplot2grid((4, 4), (2, 2), sharex=self.ax['in_stream']),
                                plt.subplot2grid((4, 4), (3, 2), sharex=self.ax['in_stream'])]
 
+        # Default plot options:
+
     def update(self, k):
         line_obj = []
 
@@ -215,3 +215,6 @@ class ots_plotter:
 
         time = np.arange(k)
         pred_time = np.range(self.ots.N_steps, k+self.ots.N_steps)
+
+        lines = in_comp[0].step(pred_time, np.stack(self.ots.predict['c'], axis=2)[0, :, :].T, '--')
+        lines = in_comp[0].step(time, np.stack(self.ots.record['c'], axis=2)[0, :, :].T)

@@ -71,5 +71,5 @@ def update(t):
 
 update(0)
 
-anim = FuncAnimation(fig, update, frames=range(70), repeat=False)
+anim = FuncAnimation(fig, update, frames=range(20), repeat=False)
 plt.show()
