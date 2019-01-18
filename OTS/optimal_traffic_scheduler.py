@@ -5,7 +5,7 @@ import pdb
 
 
 class optimal_traffic_scheduler:
-    def __init__(self, setup_dict):
+    def __init__(self, setup_dict, record_values=True):
         self.n_in = setup_dict['n_in']
         self.n_out = setup_dict['n_out']
         self.v_max = setup_dict['v_max']
@@ -13,8 +13,11 @@ class optimal_traffic_scheduler:
         self.dt = setup_dict['dt']
         self.N_steps = setup_dict['N_steps']
         self.v_delta_penalty = setup_dict['v_delta_penalty']
+        self.record_values = record_values
 
         self.initialize_prediction()
+        if self.record_values:
+            self.initialize_record()
         self.problem_formulation()
         self.create_optim()
 
@@ -24,14 +27,15 @@ class optimal_traffic_scheduler:
         bandwidth_traj = [np.zeros((1, 1))]*self.N_steps
         memory_traj = [np.zeros((1, 1))]*self.N_steps
 
-        self.state = {}
-        self.state['v_out_traj'] = v_out_traj
-        self.state['s_traj'] = s_traj
-        self.state['bandwidth_traj'] = bandwidth_traj
-        self.state['memory_traj'] = memory_traj
+        self.predict = {}
+        self.predict['v_out'] = v_out_traj
+        self.predict['s'] = s_traj
+        self.predict['bandwidth_load'] = bandwidth_traj
+        self.predict['memory_load'] = memory_traj
 
-    # def state(self, keyword):
-    #     return self.state[keyword]
+    def initialize_record(self):
+        # TODO : Save initial condition (especially for s)
+        self.record = {'v_in': [], 'v_out': [], 's': [], 'bandwidth_load': [], 'memory_load': []}
 
     def problem_formulation(self):
 
@@ -82,8 +86,8 @@ class optimal_traffic_scheduler:
 
     def create_optim(self):
         # Initialize trajectory lists:
-        s_k = []
-        v_in_k = []
+        s_k = []  # [s_1, s_2, ..., s_N]
+        v_in_k = []  # [v_in_0, v_in_1 , ... , v_in_N-1]
         c_k = []
         v_out_k = []
         v_out_k_delta = []
@@ -104,7 +108,7 @@ class optimal_traffic_scheduler:
             # Outgoing packet stream
             v_out_k.append(SX.sym('v_out', self.n_out, 1))
             if k < self.N_steps-1:
-                v_out_k_delta = self.v_delta_penalty*sum1((v_out_k[k]-self.state['v_out_traj'][k+1])**2)/self.v_max
+                v_out_k_delta = self.v_delta_penalty*sum1((v_out_k[k]-self.predict['v_out'][k+1])**2)/self.v_max
             else:
                 v_out_k_delta = self.v_delta_penalty*sum1((v_out_k[k]-v_out_k[k-1])**2)/self.v_max
 
@@ -163,36 +167,16 @@ class optimal_traffic_scheduler:
 
         memory_traj = [np.sum(s_k, keepdims=True)/self.s_max for s_k in s_traj]
 
-        self.state['v_out_traj'] = v_out_traj
-        self.state['s_traj'] = s_traj
-        self.state['bandwidth_traj'] = bandwidth_traj
-        self.state['memory_traj'] = memory_traj
+        self.predict['v_out'] = v_out_traj
+        self.predict['s'] = s_traj
+        self.predict['bandwidth_load'] = bandwidth_traj
+        self.predict['memory_load'] = memory_traj
 
-        return self.state
+        if self.record_values:
+            self.record['v_in'].append(v_in_traj[0])
+            self.record['v_out'].append(v_out_traj[0])
+            self.record['s'].append(s_traj[0])
+            self.record['bandwidth_load'].append(bandwidth_traj[0])
+            self.record['memory_load'].append(memory_traj[0])
 
-
-# setup_dict = {}
-# setup_dict['n_in'] = 2
-# setup_dict['n_out'] = 2
-# setup_dict['v_max'] = 20  # mb/s
-# setup_dict['s_max'] = 200  # mb
-# setup_dict['dt'] = 1  # s
-# setup_dict['N_steps'] = 20
-#
-#
-# ots = optimal_traffic_scheduler(setup_dict=setup_dict)
-#
-#
-# # Test for sample problem:
-# v_in_traj = [np.ones((setup_dict['n_in'], 1)) for i in range(setup_dict['N_steps'])]
-#
-# c_traj = [np.random.rand(setup_dict['n_out'], setup_dict['n_in'])
-#           for i in range(setup_dict['N_steps'])]
-# c_traj = [c_traj[i]/np.sum(c_traj[i], axis=0) for i in range(setup_dict['N_steps'])]
-#
-# bandwidth_traj = [np.random.rand(setup_dict['n_out'], 1) for i in range(setup_dict['N_steps'])]
-# memory_traj = [np.random.rand(setup_dict['n_out'], 1) for i in range(setup_dict['N_steps'])]
-#
-# s0 = np.ones((setup_dict['n_out'], 1))
-#
-# ots.solve(s0, v_in_traj, c_traj, bandwidth_traj, memory_traj)
+        return self.predict
