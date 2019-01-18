@@ -30,6 +30,9 @@ class optimal_traffic_scheduler:
         self.state['bandwidth_traj'] = bandwidth_traj
         self.state['memory_traj'] = memory_traj
 
+    # def state(self, keyword):
+    #     return self.state[keyword]
+
     def problem_formulation(self):
 
         # Problem dictionaries:
