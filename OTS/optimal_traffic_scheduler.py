@@ -35,7 +35,7 @@ class optimal_traffic_scheduler:
 
     def initialize_record(self):
         # TODO : Save initial condition (especially for s)
-        self.record = {'v_in': [], 'v_out': [], 's': [], 'bandwidth_load': [], 'memory_load': []}
+        self.record = {'v_in': [], 'v_out': [], 's': [], 'c': [] 'bandwidth_load': [], 'memory_load': []}
 
     def problem_formulation(self):
 
@@ -147,9 +147,9 @@ class optimal_traffic_scheduler:
 
     def solve(self, s0, v_in_traj, c_traj, bandwidth_traj, memory_traj):
         # Reshape composition matrix for each time step:
-        c_traj = [c_i.reshape(-1, 1) for c_i in c_traj]
+        c_traj_reshape = [c_i.reshape(-1, 1) for c_i in c_traj]
         # Create concatented parameter vector:
-        p = np.concatenate([s0]+v_in_traj+c_traj+bandwidth_traj+memory_traj)
+        p = np.concatenate([s0]+v_in_traj+c_traj_reshape+bandwidth_traj+memory_traj)
         # Solve optimization problem for given conditions:
         sol = self.optim(ubg=0, p=p)  # Note: constraints were formulated, such that cons<=0.
 
@@ -158,7 +158,7 @@ class optimal_traffic_scheduler:
         v_out_traj = [x[[k]].T for k in range(self.N_steps)]
 
         # Calculate trajectory of buffer memory usage:
-        s_traj = np.concatenate(self.s_traj(*v_in_traj+v_out_traj+[s0]+c_traj), axis=1).T
+        s_traj = np.concatenate(self.s_traj(*v_in_traj+v_out_traj+[s0]+c_traj_reshape), axis=1).T
         s_traj = [s_traj[[k]].T for k in range(self.N_steps)]
 
         # Calculate trajectory for bandwidth and memory:
@@ -175,8 +175,43 @@ class optimal_traffic_scheduler:
         if self.record_values:
             self.record['v_in'].append(v_in_traj[0])
             self.record['v_out'].append(v_out_traj[0])
-            self.record['s'].append(s_traj[0])
+            self.record['c'].append(v_out_traj[0])
+            self.record['s'].append(c_traj[0])
             self.record['bandwidth_load'].append(bandwidth_traj[0])
             self.record['memory_load'].append(memory_traj[0])
 
         return self.predict
+
+
+class ots_plotter:
+    def __init__(self, ots):
+        self.ots = ots
+
+        self.fig = plt.figure(figsize=(16, 9))
+        self.ax = {}
+
+        self.ax['in_stream'] = plt.subplot2grid((4, 4), (2, 0), rowspan=2)
+        self.ax['in_comp'] = [plt.subplot2grid((4, 4), (0, 0), sharex=self.ax['in_stream']),
+                              plt.subplot2grid((4, 4), (1, 0), sharex=self.ax['in_stream'])]
+
+        self.ax['server_buffer'] = plt.subplot2grid((4, 4), (0, 1), rowspan=2, sharex=self.ax['in_stream'])
+        self.ax['server_load'] = [plt.subplot2grid((4, 4), (2, 1), sharex=self.ax['in_stream']),
+                                  plt.subplot2grid((4, 4), (3, 1), sharex=self.ax['in_stream'])]
+
+        self.ax['out_stream'] = plt.subplot2grid((4, 4), (0, 2), rowspan=2, sharex=self.ax['in_stream'])
+        self.ax['out_load'] = [plt.subplot2grid((4, 4), (2, 2), sharex=self.ax['in_stream']),
+                               plt.subplot2grid((4, 4), (3, 2), sharex=self.ax['in_stream'])]
+
+    def update(self, k):
+        line_obj = []
+
+        # clear all axes:
+        for ax in self.ax.values():
+            if type(ax) is list:
+                for ax_i in ax:
+                    ax_i.cla()
+            else:
+                ax.cla()
+
+        time = np.arange(k)
+        pred_time = np.range(self.ots.N_steps, k+self.ots.N_steps)
