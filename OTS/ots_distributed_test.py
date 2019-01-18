@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 from casadi import *
 import pdb
-from optimal_traffic_scheduler import optimal_traffic_scheduler
+from optimal_traffic_scheduler import optimal_traffic_scheduler, ots_plotter
 import distributed_network
 np.random.seed(99)  # Luftballons
 
@@ -69,7 +69,9 @@ def update(t):
     return line_obj
 
 
-update(0)
+anim = FuncAnimation(fig, update, frames=range(5), repeat=False)
+plt.show()
 
-anim = FuncAnimation(fig, update, frames=range(20), repeat=False)
+ots_1_plot = ots_plotter(ots_1)
+ots_1_plot.update(6)
 plt.show()

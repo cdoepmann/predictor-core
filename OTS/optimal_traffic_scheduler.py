@@ -35,7 +35,7 @@ class optimal_traffic_scheduler:
 
     def initialize_record(self):
         # TODO : Save initial condition (especially for s)
-        self.record = {'v_in': [], 'v_out': [], 's': [], 'c': [] 'bandwidth_load': [], 'memory_load': []}
+        self.record = {'v_in': [], 'v_out': [], 's': [], 'c': [], 'bandwidth_load': [], 'memory_load': []}
 
     def problem_formulation(self):
 
@@ -214,7 +214,6 @@ class ots_plotter:
                 ax.cla()
 
         time = np.arange(k)
-        pred_time = np.range(self.ots.N_steps, k+self.ots.N_steps)
-
-        lines = in_comp[0].step(pred_time, np.stack(self.ots.predict['c'], axis=2)[0, :, :].T, '--')
-        lines = in_comp[0].step(time, np.stack(self.ots.record['c'], axis=2)[0, :, :].T)
+        pred_time = np.arange(k, k+self.ots.N_steps)
+        lines = self.ax['in_comp'][0].step(pred_time, np.stack(self.ots.predict['c'], axis=2)[0, :, :].T, '--')
+        lines = self.ax['in_comp'][0].step(time, np.stack(self.ots.record['c'], axis=2)[0, :, :].T)
