@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
 from casadi import *
 import pdb
 from optimal_traffic_scheduler import optimal_traffic_scheduler
