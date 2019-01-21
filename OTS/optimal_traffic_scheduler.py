@@ -14,6 +14,7 @@ class optimal_traffic_scheduler:
         self.N_steps = setup_dict['N_steps']
         self.v_delta_penalty = setup_dict['v_delta_penalty']
         self.record_values = record_values
+        self.time = np.array([[0]])  # 1,1 array for consistency.
 
         self.initialize_prediction()
         if self.record_values:
@@ -35,7 +36,7 @@ class optimal_traffic_scheduler:
 
     def initialize_record(self):
         # TODO : Save initial condition (especially for s)
-        self.record = {'v_in': [], 'v_out': [], 'v_in_buffer': [], 's': [], 'c': [], 'bandwidth_load': [], 'memory_load': []}
+        self.record = {'time': [], 'v_in': [], 'v_out': [], 'v_in_buffer': [], 's': [], 'c': [], 'bandwidth_load': [], 'memory_load': []}
 
     def problem_formulation(self):
 
@@ -175,7 +176,10 @@ class optimal_traffic_scheduler:
         self.predict['bandwidth_load'] = bandwidth_traj
         self.predict['memory_load'] = memory_traj
 
+        self.time += self.dt
+
         if self.record_values:
+            self.record['time'].append(np.copy(self.time))
             self.record['v_in'].append(v_in_traj[0])
             self.record['v_in_buffer'].append(c_traj[0]@v_in_traj[0])
             self.record['v_out'].append(v_out_traj[0])
@@ -193,59 +197,49 @@ class ots_plotter:
         self.fig, self.ax = plt.subplots(nrows=self.ots.n_out, ncols=3, figsize=(16, 9), sharex=True)
         self.ax = np.atleast_2d(self.ax)  # Otherwise indexing fails, when nrows=1
 
-        color = plt.rcParams['axes.prop_cycle'].by_key()['color']
-
-        self.lines_record = {
-            'v_in': [],
-            'v_out': [],
-            's': [],
-            'bandwidth_load': [],
-            'memory_load': []
-        }
-        self.lines_pred = {
-            'v_in': [],
-            'v_out': [],
-            's': [],
-            'bandwidth_load': [],
-            'memory_load': []
-        }
-
-        # Initialize all line objects without data:
-        for out_k in range(self.ots.n_out):
-            self.lines_record['v_in'].append(self.ax[out_k, 0].step([], [], color=color[0], animated=True))
-            self.lines_record['v_out'].append(self.ax[out_k, 0].step([], [], color=color[1], animated=True))
-            self.lines_record['s'].append(self.ax[out_k, 1].step([], [], color=color[0], animated=True))
-            self.lines_record['bandwidth_load'].append(self.ax[out_k, 2].step([], [], color=color[0], animated=True))
-            self.lines_record['memory_load'].append(self.ax[out_k, 2].step([], [], color=color[0], animated=True))
-
-            self.lines_pred['v_in'].append(self.ax[out_k, 0].step([], [], color=color[0], linestyle='--', animated=True))
-            self.lines_pred['v_out'].append(self.ax[out_k, 0].step([], [], color=color[1], linestyle='--', animated=True))
-            self.lines_pred['s'].append(self.ax[out_k, 1].step([], [], color=color[0], linestyle='--', animated=True))
-            self.lines_pred['bandwidth_load'].append(self.ax[out_k, 2].step([], [], color=color[0], linestyle='--', animated=True))
-            self.lines_pred['memory_load'].append(self.ax[out_k, 2].step([], [], color=color[0], linestyle='--', animated=True))
-
-    def init(self):
-        self.ax[0, 0].set_ylabel('test')
-        # Set axis limit, title etc in here.
+        self.color = plt.rcParams['axes.prop_cycle'].by_key()['color']
 
     def update(self, k):
-        time = np.arange(k)
-        pred_time = np.arange(k, k+self.ots.N_steps)
 
-        v_in_buffer = [c@v for c, v in zip(self.ots.predict['c'], self.ots.predict['v_in'])]
+        pred_time = np.arange(start=self.ots.time, stop=self.ots.time+(self.ots.N_steps+1)*self.ots.dt, step=self.ots.dt)
 
+        for ax_i in self.ax.ravel():
+            ax_i.cla()
+
+        v_in_buffer = np.concatenate([self.ots.record['v_in_buffer'][-1]]+[c@v for c, v in zip(self.ots.predict['c'], self.ots.predict['v_in'])], axis=1)
+        record = {name: np.concatenate(val, axis=1) for name, val in self.ots.record.items()}
+        predict = {name: np.concatenate([self.ots.record[name][-1]]+val, axis=1) for name, val in self.ots.predict.items()}
+
+        lines = []
         for out_k in range(self.ots.n_out):
-            pdb.set_trace()
-            self.lines_record['v_in'][out_k][0].set_data(time, np.concatenate(self.ots.record['v_in_buffer'], axis=1).T)
-            self.lines_record['v_out'][out_k][0].set_data(time, np.concatenate(self.ots.record['v_in'], axis=1).T)
-            self.lines_record['s'][out_k][0].set_data(time, np.concatenate(self.ots.record['s'], axis=1).T)
-            self.lines_record['bandwidth_load'][out_k][0].set_data(time, np.concatenate(self.ots.record['bandwidth_load'], axis=1).T)
-            self.lines_record['memory_load'][out_k][0].set_data(time, np.concatenate(self.ots.record['memory_load'], axis=1).T)
+            """Diagram 01: Incoming and Outgoing packages. """
+            lines.append(self.ax[out_k, 0].plot([], [], linewidth=0))  # Dummy to get legend entry
+            lines.append(self.ax[out_k, 0].step(record['time'][0], record['v_in_buffer'][out_k], color=self.color[0]))
+            lines.append(self.ax[out_k, 0].step(record['time'][0], record['v_out'][out_k], color=self.color[1]))
+            lines.append(self.ax[out_k, 0].plot([], [], linewidth=0))  # Dummy to get legend entry
+            lines.append(self.ax[out_k, 0].step(pred_time, v_in_buffer[out_k], color=self.color[0], linestyle='--'))
+            lines.append(self.ax[out_k, 0].step(pred_time, predict['v_out'][out_k], color=self.color[1], linestyle='--'))
+            self.ax[out_k, 0].legend([line[0] for line in lines[-6:]], ['Recorded', 'Incoming', 'Outoing', 'Predicted', 'Incoming', 'Outgoing'],
+                                     loc='upper left', ncol=2, title='Package Streams')
+            self.ax[out_k, 0].set_ylim([0, self.ots.v_max*1.1])
 
-            self.lines_pred['v_in'][out_k][0].set_data(pred_time, np.concatenate(v_in_buffer, axis=1).T)
-            self.lines_pred['v_out'][out_k][0].set_data(pred_time, np.concatenate(self.ots.predict['v_in'], axis=1).T)
-            self.lines_pred['s'][out_k][0].set_data(pred_time, np.concatenate(self.ots.predict['s'], axis=1).T)
-            self.lines_pred['bandwidth_load'][out_k][0].set_data(pred_time, np.concatenate(self.ots.predict['bandwidth_load'], axis=1).T)
-            self.lines_pred['memory_load'][out_k][0].set_data(pred_time, np.concatenate(self.ots.predict['memory_load'], axis=1).T)
-        # Return all line objects as simple list:
-        return np.array([*self.lines_record.values()]+[*self.lines_pred.values()]).ravel().tolist()
+            """Diagram 02: Buffer Memory. """
+            lines.append(self.ax[out_k, 1].plot([], [], linewidth=0))  # Dummy to get legend entry
+            lines.append(self.ax[out_k, 1].step(record['time'][0], record['s'][out_k], color=self.color[0]))
+            lines.append(self.ax[out_k, 1].step(pred_time, predict['s'][out_k], color=self.color[0], linestyle='--'))
+            self.ax[out_k, 1].legend([line[0] for line in lines[-3:]], ['Buffer Memory', 'Recorded', 'Predicted'], loc='upper left')
+            self.ax[out_k, 1].set_ylim([0, self.ots.s_max*1.1])
+
+            """Diagram 03: Load. """
+            lines.append(self.ax[out_k, 2].plot([], [], linewidth=0))  # Dummy to get legend entry
+            lines.append(self.ax[out_k, 2].step(record['time'][0], record['bandwidth_load'][out_k], color=self.color[0]))
+            lines.append(self.ax[out_k, 2].step(record['time'][0], record['memory_load'][out_k], color=self.color[1]))
+            lines.append(self.ax[out_k, 2].plot([], [], linewidth=0))  # Dummy to get legend entry
+            lines.append(self.ax[out_k, 2].step(pred_time, predict['bandwidth_load'][out_k], color=self.color[0], linestyle='--'))
+            lines.append(self.ax[out_k, 2].step(pred_time, predict['memory_load'][out_k], color=self.color[1], linestyle='--'))
+            self.ax[out_k, 2].legend([line[0] for line in lines[-6:]], ['Recorded', 'Bandwidth', 'Memory', 'Predicted', 'Bandwidth', 'Memory'],
+                                     loc='upper left', ncol=2, title='Server Load')
+            self.ax[out_k, 2].set_ylim([-0.1, 1.1])
+
+        # Return all line objects
+        return lines

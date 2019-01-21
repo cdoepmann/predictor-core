@@ -50,28 +50,36 @@ connections = [
 dn = distributed_network.distributed_network([input_node], [output_node], connections, setup_dict['N_steps'])
 
 
-fig, ax = plt.subplots(3, 1)
-
-N = range(setup_dict['N_steps'])
-
-
-def update(t):
-    dn.simulate(c_list=[c_traj]*len(connections))
-
-    for ax_i in ax:
-        ax_i.cla()
-        ax_i.set_ylim([0, 15])
-
-    line_obj = []
-    line_obj.append(ax[0].step(N, np.concatenate(ots_1.predict['v_out']).reshape(-1, 1)))
-    line_obj.append(ax[1].step(N, np.concatenate(ots_2.predict['v_out']).reshape(-1, 1)))
-    line_obj.append(ax[2].step(N, np.concatenate(ots_3.predict['v_out']).reshape(-1, 1)))
-    return line_obj
+# fig, ax = plt.subplots(3, 1)
+#
+# N = range(setup_dict['N_steps'])
 
 
-anim = FuncAnimation(fig, update, frames=range(5), repeat=False)
-plt.show()
+# def update(t):
+#     dn.simulate(c_list=[c_traj]*len(connections))
+#
+#     for ax_i in ax:
+#         ax_i.cla()
+#         ax_i.set_ylim([0, 15])
+#
+#     line_obj = []
+#     line_obj.append(ax[0].step(N, np.concatenate(ots_1.predict['v_out']).reshape(-1, 1)))
+#     line_obj.append(ax[1].step(N, np.concatenate(ots_2.predict['v_out']).reshape(-1, 1)))
+#     line_obj.append(ax[2].step(N, np.concatenate(ots_3.predict['v_out']).reshape(-1, 1)))
+#     return line_obj
+#
+#
+# anim = FuncAnimation(fig, update, frames=range(10), repeat=False)
+# plt.show()
 
 ots_1_plot = ots_plotter(ots_1)
-ots_1_plot.update(6)
+
+
+def update(k):
+    dn.simulate(c_list=[c_traj]*len(connections))
+    lines = ots_1_plot.update(k)
+    return lines
+
+
+anim = FuncAnimation(ots_1_plot.fig, update, frames=range(60), repeat=False)
 plt.show()
