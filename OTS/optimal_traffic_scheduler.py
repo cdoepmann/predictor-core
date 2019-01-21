@@ -86,6 +86,7 @@ class optimal_traffic_scheduler:
         v_in_k = []  # [v_in_0, v_in_1 , ... , v_in_N-1]
         c_k = []
         v_out_k = []
+        v_out_prev_k = []
         v_out_k_delta = []
         cons_k = []
         bandwidth_load_k = []
@@ -103,8 +104,10 @@ class optimal_traffic_scheduler:
             v_in_k.append(SX.sym('v_in', self.n_in, 1))
             # Outgoing packet stream
             v_out_k.append(SX.sym('v_out', self.n_out, 1))
+
             if k < self.N_steps-1:
-                v_out_k_delta = self.v_delta_penalty*sum1((v_out_k[k]-self.predict['v_out'][k+1])**2)/self.v_max
+                v_out_prev_k.append(SX.sym('v_out_prev', self.n_out, 1))
+                v_out_k_delta = self.v_delta_penalty*sum1((v_out_k[k]-v_out_prev_k[k])**2)/self.v_max
             else:
                 v_out_k_delta = self.v_delta_penalty*sum1((v_out_k[k]-v_out_k[k-1])**2)/self.v_max
 
@@ -134,7 +137,7 @@ class optimal_traffic_scheduler:
         optim_dict = {'x': vertcat(*v_out_k),  # Optimization variable
                       'f': obj_k,  # objective
                       'g': vertcat(*cons_k),  # constraints (Note: cons<=0)
-                      'p': vertcat(s0, *v_in_k,  *c_k, *bandwidth_load_k, *memory_load_k)}  # parameters
+                      'p': vertcat(s0, *v_in_k,  *c_k, *v_out_prev_k, *bandwidth_load_k, *memory_load_k)}  # parameters
 
         # Create casadi optimization object:
         self.optim = nlpsol('optim', 'ipopt', optim_dict)
@@ -144,8 +147,10 @@ class optimal_traffic_scheduler:
     def solve(self, s0, v_in_traj, c_traj, bandwidth_traj, memory_traj):
         # Reshape composition matrix for each time step:
         c_traj_reshape = [c_i.reshape(-1, 1) for c_i in c_traj]
+        # Get previous solution:
+        v_out_prev_traj = self.predict['v_out'][1:]
         # Create concatented parameter vector:
-        p = np.concatenate([s0]+v_in_traj+c_traj_reshape+bandwidth_traj+memory_traj)
+        p = np.concatenate([s0]+v_in_traj+c_traj_reshape+v_out_prev_traj+bandwidth_traj+memory_traj)
         # Solve optimization problem for given conditions:
         sol = self.optim(ubg=0, p=p)  # Note: constraints were formulated, such that cons<=0.
 
