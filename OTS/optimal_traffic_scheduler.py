@@ -192,54 +192,68 @@ class optimal_traffic_scheduler:
 
 class ots_plotter:
     def __init__(self, ots):
-        self.ots = ots
+        # ots must be list object to iterate over its entries.
+        if type(ots) == list:
+            self.ots = ots
+        else:
+            self.ots = [ots]
 
-        self.fig, self.ax = plt.subplots(nrows=self.ots.n_out, ncols=3, figsize=(16, 9), sharex=True)
+        nrows = 0
+        for ots_i in self.ots:
+            nrows += ots_i.n_out
+
+        self.fig, self.ax = plt.subplots(nrows=nrows, ncols=3, figsize=(16, 9), sharex=True)
         self.ax = np.atleast_2d(self.ax)  # Otherwise indexing fails, when nrows=1
 
         self.color = plt.rcParams['axes.prop_cycle'].by_key()['color']
 
-    def update(self, k):
-
-        pred_time = np.arange(start=self.ots.time, stop=self.ots.time+(self.ots.N_steps+1)*self.ots.dt, step=self.ots.dt)
-
+    def plot(self, k):
         for ax_i in self.ax.ravel():
             ax_i.cla()
 
-        v_in_buffer = np.concatenate([self.ots.record['v_in_buffer'][-1]]+[c@v for c, v in zip(self.ots.predict['c'], self.ots.predict['v_in'])], axis=1)
-        record = {name: np.concatenate(val, axis=1) for name, val in self.ots.record.items()}
-        predict = {name: np.concatenate([self.ots.record[name][-1]]+val, axis=1) for name, val in self.ots.predict.items()}
-
         lines = []
-        for out_k in range(self.ots.n_out):
-            """Diagram 01: Incoming and Outgoing packages. """
-            lines.append(self.ax[out_k, 0].plot([], [], linewidth=0))  # Dummy to get legend entry
-            lines.append(self.ax[out_k, 0].step(record['time'][0], record['v_in_buffer'][out_k], color=self.color[0]))
-            lines.append(self.ax[out_k, 0].step(record['time'][0], record['v_out'][out_k], color=self.color[1]))
-            lines.append(self.ax[out_k, 0].plot([], [], linewidth=0))  # Dummy to get legend entry
-            lines.append(self.ax[out_k, 0].step(pred_time, v_in_buffer[out_k], color=self.color[0], linestyle='--'))
-            lines.append(self.ax[out_k, 0].step(pred_time, predict['v_out'][out_k], color=self.color[1], linestyle='--'))
-            self.ax[out_k, 0].legend([line[0] for line in lines[-6:]], ['Recorded', 'Incoming', 'Outoing', 'Predicted', 'Incoming', 'Outgoing'],
-                                     loc='upper left', ncol=2, title='Package Streams')
-            self.ax[out_k, 0].set_ylim([0, self.ots.v_max*1.1])
+        offset = 0
 
-            """Diagram 02: Buffer Memory. """
-            lines.append(self.ax[out_k, 1].plot([], [], linewidth=0))  # Dummy to get legend entry
-            lines.append(self.ax[out_k, 1].step(record['time'][0], record['s'][out_k], color=self.color[0]))
-            lines.append(self.ax[out_k, 1].step(pred_time, predict['s'][out_k], color=self.color[0], linestyle='--'))
-            self.ax[out_k, 1].legend([line[0] for line in lines[-3:]], ['Buffer Memory', 'Recorded', 'Predicted'], loc='upper left')
-            self.ax[out_k, 1].set_ylim([0, self.ots.s_max*1.1])
+        for server_i, ots_i in enumerate(self.ots):
 
-            """Diagram 03: Load. """
-            lines.append(self.ax[out_k, 2].plot([], [], linewidth=0))  # Dummy to get legend entry
-            lines.append(self.ax[out_k, 2].step(record['time'][0], record['bandwidth_load'][out_k], color=self.color[0]))
-            lines.append(self.ax[out_k, 2].step(record['time'][0], record['memory_load'][out_k], color=self.color[1]))
-            lines.append(self.ax[out_k, 2].plot([], [], linewidth=0))  # Dummy to get legend entry
-            lines.append(self.ax[out_k, 2].step(pred_time, predict['bandwidth_load'][out_k], color=self.color[0], linestyle='--'))
-            lines.append(self.ax[out_k, 2].step(pred_time, predict['memory_load'][out_k], color=self.color[1], linestyle='--'))
-            self.ax[out_k, 2].legend([line[0] for line in lines[-6:]], ['Recorded', 'Bandwidth', 'Memory', 'Predicted', 'Bandwidth', 'Memory'],
-                                     loc='upper left', ncol=2, title='Server Load')
-            self.ax[out_k, 2].set_ylim([-0.1, 1.1])
+            pred_time = np.arange(start=ots_i.time, stop=ots_i.time+(ots_i.N_steps+1)*ots_i.dt, step=ots_i.dt)
+
+            v_in_buffer = np.concatenate([ots_i.record['v_in_buffer'][-1]]+[c@v for c, v in zip(ots_i.predict['c'], ots_i.predict['v_in'])], axis=1)
+            record = {name: np.concatenate(val, axis=1) for name, val in ots_i.record.items()}
+            predict = {name: np.concatenate([ots_i.record[name][-1]]+val, axis=1) for name, val in ots_i.predict.items()}
+
+            for out_k in range(ots_i.n_out):
+                """Diagram 01: Incoming and Outgoing packages. """
+                lines.append(self.ax[out_k+offset, 0].plot([], [], linewidth=0))  # Dummy to get legend entry
+                lines.append(self.ax[out_k+offset, 0].step(record['time'][0], record['v_in_buffer'][out_k], color=self.color[0]))
+                lines.append(self.ax[out_k+offset, 0].step(record['time'][0], record['v_out'][out_k], color=self.color[1]))
+                lines.append(self.ax[out_k+offset, 0].plot([], [], linewidth=0))  # Dummy to get legend entry
+                lines.append(self.ax[out_k+offset, 0].step(pred_time, v_in_buffer[out_k], color=self.color[0], linestyle='--'))
+                lines.append(self.ax[out_k+offset, 0].step(pred_time, predict['v_out'][out_k], color=self.color[1], linestyle='--'))
+                self.ax[out_k+offset, 0].legend([line[0] for line in lines[-6:]], ['Recorded', 'Incoming', 'Outoing', 'Predicted', 'Incoming', 'Outgoing'],
+                                                loc='upper left', ncol=2, title='Package Streams')
+                self.ax[out_k+offset, 0].set_ylim([0, ots_i.v_max*1.1])
+
+                """Diagram 02: Buffer Memory. """
+                self.ax[out_k+offset, 1].set_title('Server {0}, Output buffer {1}'.format(server_i+1, out_k+1))
+                lines.append(self.ax[out_k+offset, 1].plot([], [], linewidth=0))  # Dummy to get legend entry
+                lines.append(self.ax[out_k+offset, 1].step(record['time'][0], record['s'][out_k], color=self.color[0]))
+                lines.append(self.ax[out_k+offset, 1].step(pred_time, predict['s'][out_k], color=self.color[0], linestyle='--'))
+                self.ax[out_k+offset, 1].legend([line[0] for line in lines[-3:]], ['Buffer Memory', 'Recorded', 'Predicted'], loc='upper left')
+                self.ax[out_k+offset, 1].set_ylim([0, ots_i.s_max*1.1])
+
+                """Diagram 03: Load. """
+                lines.append(self.ax[out_k+offset, 2].plot([], [], linewidth=0))  # Dummy to get legend entry
+                lines.append(self.ax[out_k+offset, 2].step(record['time'][0], record['bandwidth_load'][out_k], color=self.color[0]))
+                lines.append(self.ax[out_k+offset, 2].step(record['time'][0], record['memory_load'][out_k], color=self.color[1]))
+                lines.append(self.ax[out_k+offset, 2].plot([], [], linewidth=0))  # Dummy to get legend entry
+                lines.append(self.ax[out_k+offset, 2].step(pred_time, predict['bandwidth_load'][out_k], color=self.color[0], linestyle='--'))
+                lines.append(self.ax[out_k+offset, 2].step(pred_time, predict['memory_load'][out_k], color=self.color[1], linestyle='--'))
+                self.ax[out_k+offset, 2].legend([line[0] for line in lines[-6:]], ['Recorded', 'Bandwidth', 'Memory', 'Predicted', 'Bandwidth', 'Memory'],
+                                                loc='upper left', ncol=2, title='Server Load')
+                self.ax[out_k+offset, 2].set_ylim([-0.1, 1.1])
+
+            offset += ots_i.n_out
 
         # Return all line objects
         return lines
