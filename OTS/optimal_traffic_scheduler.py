@@ -35,7 +35,7 @@ class optimal_traffic_scheduler:
 
     def initialize_record(self):
         # TODO : Save initial condition (especially for s)
-        self.record = {'v_in': [], 'v_out': [], 's': [], 'c': [], 'bandwidth_load': [], 'memory_load': []}
+        self.record = {'v_in': [], 'v_out': [], 'v_in_buffer': [], 's': [], 'c': [], 'bandwidth_load': [], 'memory_load': []}
 
     def problem_formulation(self):
 
@@ -177,12 +177,12 @@ class optimal_traffic_scheduler:
 
         if self.record_values:
             self.record['v_in'].append(v_in_traj[0])
+            self.record['v_in_buffer'].append(c_traj[0]@v_in_traj[0])
             self.record['v_out'].append(v_out_traj[0])
             self.record['c'].append(v_out_traj[0])
             self.record['s'].append(c_traj[0])
             self.record['bandwidth_load'].append(bandwidth_traj[0])
             self.record['memory_load'].append(memory_traj[0])
-
         return self.predict
 
 
@@ -190,35 +190,62 @@ class ots_plotter:
     def __init__(self, ots):
         self.ots = ots
 
-        self.fig = plt.figure(figsize=(16, 9))
-        self.ax = {}
+        self.fig, self.ax = plt.subplots(nrows=self.ots.n_out, ncols=3, figsize=(16, 9), sharex=True)
+        self.ax = np.atleast_2d(self.ax)  # Otherwise indexing fails, when nrows=1
 
-        self.ax['in_stream'] = plt.subplot2grid((4, 4), (2, 0), rowspan=2)
-        self.ax['in_comp'] = [plt.subplot2grid((4, 4), (0, 0), sharex=self.ax['in_stream']),
-                              plt.subplot2grid((4, 4), (1, 0), sharex=self.ax['in_stream'])]
+        color = plt.rcParams['axes.prop_cycle'].by_key()['color']
 
-        self.ax['server_buffer'] = plt.subplot2grid((4, 4), (0, 1), rowspan=2, sharex=self.ax['in_stream'])
-        self.ax['server_load'] = [plt.subplot2grid((4, 4), (2, 1), sharex=self.ax['in_stream']),
-                                  plt.subplot2grid((4, 4), (3, 1), sharex=self.ax['in_stream'])]
+        self.lines_record = {
+            'v_in': [],
+            'v_out': [],
+            's': [],
+            'bandwidth_load': [],
+            'memory_load': []
+        }
+        self.lines_pred = {
+            'v_in': [],
+            'v_out': [],
+            's': [],
+            'bandwidth_load': [],
+            'memory_load': []
+        }
 
-        self.ax['out_stream'] = plt.subplot2grid((4, 4), (0, 2), rowspan=2, sharex=self.ax['in_stream'])
-        self.ax['out_load'] = [plt.subplot2grid((4, 4), (2, 2), sharex=self.ax['in_stream']),
-                               plt.subplot2grid((4, 4), (3, 2), sharex=self.ax['in_stream'])]
+        # Initialize all line objects without data:
+        for out_k in range(self.ots.n_out):
+            self.lines_record['v_in'].append(self.ax[out_k, 0].step([], [], color=color[0], animated=True))
+            self.lines_record['v_out'].append(self.ax[out_k, 0].step([], [], color=color[1], animated=True))
+            self.lines_record['s'].append(self.ax[out_k, 1].step([], [], color=color[0], animated=True))
+            self.lines_record['bandwidth_load'].append(self.ax[out_k, 2].step([], [], color=color[0], animated=True))
+            self.lines_record['memory_load'].append(self.ax[out_k, 2].step([], [], color=color[0], animated=True))
 
-        # Default plot options:
+            self.lines_pred['v_in'].append(self.ax[out_k, 0].step([], [], color=color[0], linestyle='--', animated=True))
+            self.lines_pred['v_out'].append(self.ax[out_k, 0].step([], [], color=color[1], linestyle='--', animated=True))
+            self.lines_pred['s'].append(self.ax[out_k, 1].step([], [], color=color[0], linestyle='--', animated=True))
+            self.lines_pred['bandwidth_load'].append(self.ax[out_k, 2].step([], [], color=color[0], linestyle='--', animated=True))
+            self.lines_pred['memory_load'].append(self.ax[out_k, 2].step([], [], color=color[0], linestyle='--', animated=True))
+
+    def init(self):
+        self.ax[0, 0].set_ylabel('test')
+        # Set axis limit, title etc in here.
 
     def update(self, k):
-        line_obj = []
-
-        # clear all axes:
-        for ax in self.ax.values():
-            if type(ax) is list:
-                for ax_i in ax:
-                    ax_i.cla()
-            else:
-                ax.cla()
-
         time = np.arange(k)
         pred_time = np.arange(k, k+self.ots.N_steps)
-        lines = self.ax['in_comp'][0].step(pred_time, np.stack(self.ots.predict['c'], axis=2)[0, :, :].T, '--')
-        lines = self.ax['in_comp'][0].step(time, np.stack(self.ots.record['c'], axis=2)[0, :, :].T)
+
+        v_in_buffer = [c@v for c, v in zip(self.ots.predict['c'], self.ots.predict['v_in'])]
+
+        for out_k in range(self.ots.n_out):
+            pdb.set_trace()
+            self.lines_record['v_in'][out_k][0].set_data(time, np.concatenate(self.ots.record['v_in_buffer'], axis=1).T)
+            self.lines_record['v_out'][out_k][0].set_data(time, np.concatenate(self.ots.record['v_in'], axis=1).T)
+            self.lines_record['s'][out_k][0].set_data(time, np.concatenate(self.ots.record['s'], axis=1).T)
+            self.lines_record['bandwidth_load'][out_k][0].set_data(time, np.concatenate(self.ots.record['bandwidth_load'], axis=1).T)
+            self.lines_record['memory_load'][out_k][0].set_data(time, np.concatenate(self.ots.record['memory_load'], axis=1).T)
+
+            self.lines_pred['v_in'][out_k][0].set_data(pred_time, np.concatenate(v_in_buffer, axis=1).T)
+            self.lines_pred['v_out'][out_k][0].set_data(pred_time, np.concatenate(self.ots.predict['v_in'], axis=1).T)
+            self.lines_pred['s'][out_k][0].set_data(pred_time, np.concatenate(self.ots.predict['s'], axis=1).T)
+            self.lines_pred['bandwidth_load'][out_k][0].set_data(pred_time, np.concatenate(self.ots.predict['bandwidth_load'], axis=1).T)
+            self.lines_pred['memory_load'][out_k][0].set_data(pred_time, np.concatenate(self.ots.predict['memory_load'], axis=1).T)
+        # Return all line objects as simple list:
+        return np.array([*self.lines_record.values()]+[*self.lines_pred.values()]).ravel().tolist()
