@@ -54,10 +54,6 @@ class distributed_network:
 
         for connection_i, c in zip(self.connections, c_list):
 
-            # source, node and target in 'connections' must be a list. Convert if necessary:
-            if type(connection_i['source']) is not list:
-                connection_i['source'] = [connection_i['source']]
-
             # Get information from connected nodes:
 
             # Current node:
@@ -93,9 +89,7 @@ class distributed_network:
 
             # Target node(s):
             if type(connection_i['target']) is list:
-                assert len(connection_i['target']) == connection_i['node'].n_out
-                # bandwidth_load = np.split(np.hstack([source_i.predict['bandwidth_load'] for source_i in connection_i['target']]).reshape(self.N_horizon, -1), self.N_horizon)
-                # memory_load = np.split(np.hstack([source_i.predict['memory_load'] for source_i in connection_i['target']]).reshape(self.N_horizon, -1), self.N_horizon)
+                assert len(connection_i['target']) == connection_i['node'].n_out, 'Connection has the wrong number of outputs'.
                 bandwidth_load = np.hstack([source_i.predict['bandwidth_load'] for source_i in connection_i['target']])
                 memory_load = np.hstack([source_i.predict['memory_load'] for source_i in connection_i['target']])
             else:

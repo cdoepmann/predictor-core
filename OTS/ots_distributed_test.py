@@ -52,7 +52,7 @@ output_node = distributed_network.output_node(bandwidth_traj, memory_traj)
 connections = [
     {'source': [input_node], 'node': ots_1, 'target': [ots_2, ots_3]},
     {'source': [ots_1],      'node': ots_2, 'target': [ots_3]},
-    {'source': [ots_2, ots_1],      'node': ots_3, 'target': [output_node]},
+    {'source': [ots_2, ],    'node': ots_3, 'target': [output_node]},
 ]
 
 
