@@ -76,12 +76,6 @@ class distributed_network:
                     # Append the respective channel to v_out_source
                     v_out_source.append([source_i_k[[source_channel_ind]] for source_i_k in source_i.predict['v_out']])
 
-            # if type(connection_i['source']) is list:
-            #     assert len(connection_i['source']) == connection_i['node'].n_in
-            #     # v_in = np.split(np.hstack([source_i.predict['v_out'] for source_i in connection_i['source']]).reshape(self.N_horizon, -1), self.N_horizon)
-            #     v_in = np.hstack([source_i.predict['v_out'] for source_i in connection_i['source']])
-            # else:
-            #     v_in = connection_i['source'].predict['v_out']
             if len(v_out_source) > 1:
                 v_in = np.hstack(v_out_source)
             else:
