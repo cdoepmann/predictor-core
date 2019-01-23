@@ -146,21 +146,24 @@ class optimal_traffic_scheduler:
         self.s_traj = Function('s_traj', v_in_k+v_out_k+[s0]+c_k, s_k)
 
     def solve(self, s0, v_in_traj, c_traj, bandwidth_traj, memory_traj):
+        if not c_traj[0].shape == (self.n_out, self.n_in):
+            raise Exception('Composition Matrix is not consistent with the I/O of the node.')
+
         # Reshape composition matrix for each time step:
         c_traj_reshape = [c_i.reshape(-1, 1) for c_i in c_traj]
         # Get previous solution:
         v_out_prev_traj = self.predict['v_out'][1:]
         # Create concatented parameter vector:
-        p = np.concatenate([s0]+v_in_traj+c_traj_reshape+v_out_prev_traj+bandwidth_traj+memory_traj)
+        param = np.concatenate((s0, *v_in_traj, *c_traj_reshape, *v_out_prev_traj, *bandwidth_traj, *memory_traj), axis=0)
         # Solve optimization problem for given conditions:
-        sol = self.optim(ubg=0, p=p)  # Note: constraints were formulated, such that cons<=0.
+        sol = self.optim(ubg=0, p=param)  # Note: constraints were formulated, such that cons<=0.
 
         # Retrieve trajectory of outgoing package streams:
         x = sol['x'].full().reshape(self.N_steps, -1)
         v_out_traj = [x[[k]].T for k in range(self.N_steps)]
 
         # Calculate trajectory of buffer memory usage:
-        s_traj = np.concatenate(self.s_traj(*v_in_traj+v_out_traj+[s0]+c_traj_reshape), axis=1).T
+        s_traj = np.concatenate(self.s_traj(*v_in_traj, *v_out_traj, s0, *c_traj_reshape), axis=1).T
         s_traj = [s_traj[[k]].T for k in range(self.N_steps)]
 
         # Calculate trajectory for bandwidth and memory:
@@ -184,7 +187,7 @@ class optimal_traffic_scheduler:
             self.record['v_in_buffer'].append(c_traj[0]@v_in_traj[0])
             self.record['v_out'].append(v_out_traj[0])
             self.record['c'].append(v_out_traj[0])
-            self.record['s'].append(c_traj[0])
+            self.record['s'].append(s_traj[0])
             self.record['bandwidth_load'].append(bandwidth_traj[0])
             self.record['memory_load'].append(memory_traj[0])
         return self.predict
@@ -242,18 +245,24 @@ class ots_plotter:
                 self.ax[out_k+offset, 1].legend([line[0] for line in lines[-3:]], ['Buffer Memory', 'Recorded', 'Predicted'], loc='upper left')
                 self.ax[out_k+offset, 1].set_ylim([0, ots_i.s_max*1.1])
 
-                """Diagram 03: Load. """
-                lines.append(self.ax[out_k+offset, 2].plot([], [], linewidth=0))  # Dummy to get legend entry
-                lines.append(self.ax[out_k+offset, 2].step(record['time'][0], record['bandwidth_load'][out_k], color=self.color[0]))
-                lines.append(self.ax[out_k+offset, 2].step(record['time'][0], record['memory_load'][out_k], color=self.color[1]))
-                lines.append(self.ax[out_k+offset, 2].plot([], [], linewidth=0))  # Dummy to get legend entry
-                lines.append(self.ax[out_k+offset, 2].step(pred_time, predict['bandwidth_load'][out_k], color=self.color[0], linestyle='--'))
-                lines.append(self.ax[out_k+offset, 2].step(pred_time, predict['memory_load'][out_k], color=self.color[1], linestyle='--'))
-                self.ax[out_k+offset, 2].legend([line[0] for line in lines[-6:]], ['Recorded', 'Bandwidth', 'Memory', 'Predicted', 'Bandwidth', 'Memory'],
-                                                loc='upper left', ncol=2, title='Server Load')
-                self.ax[out_k+offset, 2].set_ylim([-0.1, 1.1])
+                # """Diagram 03: Load. """
+                # lines.append(self.ax[out_k+offset, 2].plot([], [], linewidth=0))  # Dummy to get legend entry
+                # pdb.set_trace()
+                # lines.append(self.ax[out_k+offset, 2].step(record['time'][0], record['bandwidth_load'][out_k], color=self.color[0]))
+                # lines.append(self.ax[out_k+offset, 2].step(record['time'][0], record['memory_load'][out_k], color=self.color[1]))
+                # lines.append(self.ax[out_k+offset, 2].plot([], [], linewidth=0))  # Dummy to get legend entry
+                # lines.append(self.ax[out_k+offset, 2].step(pred_time, predict['bandwidth_load'][out_k], color=self.color[0], linestyle='--'))
+                # lines.append(self.ax[out_k+offset, 2].step(pred_time, predict['memory_load'][out_k], color=self.color[1], linestyle='--'))
+                # self.ax[out_k+offset, 2].legend([line[0] for line in lines[-6:]], ['Recorded', 'Bandwidth', 'Memory', 'Predicted', 'Bandwidth', 'Memory'],
+                #                                 loc='upper left', ncol=2, title='Server Load')
+                # self.ax[out_k+offset, 2].set_ylim([-0.1, 1.1])
 
             offset += ots_i.n_out
 
         # Return all line objects
         return lines
+
+
+class ots_graph_tool:
+    def __init__(self):
+        None
