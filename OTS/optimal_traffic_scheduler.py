@@ -36,7 +36,9 @@ class optimal_traffic_scheduler:
 
     def initialize_record(self):
         # TODO : Save initial condition (especially for s)
-        self.record = {'time': [], 'v_in': [], 'v_out': [], 'v_in_buffer': [], 's': [], 'c': [], 'bandwidth_load': [], 'memory_load': []}
+        self.record = {'time': [], 'v_in': [], 'v_out': [], 'v_in_buffer': [],
+                       's': [], 'c': [], 'bandwidth_load': [], 'memory_load': [],
+                       'bandwidth_load_target': [], 'memory_load_target': []}
 
     def problem_formulation(self):
 
@@ -62,6 +64,7 @@ class optimal_traffic_scheduler:
             # maximum bandwidth cant be exceeded
             sum1(v_in)+sum1(v_out) - self.v_max,
             sum1(s)-self.s_max,  # maximum (buffer)memory capacity cant be exceeded
+            # TODO :
             -s,  # buffer memory cant be <0 (for each output buffer)
             -v_out,  # outgoing package stream cant be negative
             -v_out*(0.99-bandwidth_load),
@@ -145,16 +148,43 @@ class optimal_traffic_scheduler:
         # Create function to calculate buffer memory from parameter and optimization variable trajectories
         self.s_traj = Function('s_traj', v_in_k+v_out_k+[s0]+c_k, s_k)
 
-    def solve(self, s0, v_in_traj, c_traj, bandwidth_traj, memory_traj):
-        if not c_traj[0].shape == (self.n_out, self.n_in):
+    def solve(self, s0, v_in_traj, c_traj, bandwidth_target_traj, memory_target_traj):
+        """
+        Solves the optimal control problem defined in optimal_traffic_scheduler.problem_formulation().
+        Inputs:
+        - s0            : current memory for each buffer (must be n_out x 1 vector)
+        Predicted trajectories (as lists with N_horizon elments):
+        - v_in_traj             : Incoming package stream (n_in x 1 vector)
+        - c_traj                : Composition matrix of incoming package stream (n_out x n_in matrix)
+        - bandwidth_target_traj : Bandwidth load of target server(s) (n_out x 1 vector)
+        - memory_target_traj    : Memory load of target server(s) (n_out x 1 vector)
+
+        Populates the "predict" and "record" dictonaries of the class.
+        - Predict: Constantly overwritten variables that save the current optimized state and control trajectories of the node
+        - Record:  Lists with items appended for each call of solve, recording the past states of the node.
+
+        Returns the predict dictionary. Note that the predict dictionary contains some of the inputs trajectories as well as the
+        calculated optimal trajectories.
+        """
+
+        # Check if input complies with requirements:
+        if not all([c_traj_k.shape == (self.n_out, self.n_in) for c_traj_k in c_traj]):
             raise Exception('Composition Matrix is not consistent with the I/O of the node.')
+        if not s0.shape == (self.n_out, 1):
+            raise Exception('Initial buffer storage is not consistent with the I/O of the node.')
+        if not all([v_in_traj_k.shape == (self.n_in, 1) for v_in_traj_k in v_in_traj]):
+            raise Exception('Incoming package stream is not consistent with the I/O of the node.')
+        if not all([bandwidth_target_traj_k.shape == (self.n_out, 1) for bandwidth_target_traj_k in bandwidth_target_traj]):
+            raise Exception('Bandwidth information of connected target server is not consistent with the I/O of the node.')
+        if not all([memory_target_traj_k.shape == (self.n_out, 1) for memory_target_traj_k in memory_target_traj]):
+            raise Exception('Memory information of connected target server is not consistent with the I/O of the node.')
 
         # Reshape composition matrix for each time step:
         c_traj_reshape = [c_i.reshape(-1, 1) for c_i in c_traj]
         # Get previous solution:
         v_out_prev_traj = self.predict['v_out'][1:]
         # Create concatented parameter vector:
-        param = np.concatenate((s0, *v_in_traj, *c_traj_reshape, *v_out_prev_traj, *bandwidth_traj, *memory_traj), axis=0)
+        param = np.concatenate((s0, *v_in_traj, *c_traj_reshape, *v_out_prev_traj, *bandwidth_target_traj, *memory_target_traj), axis=0)
         # Solve optimization problem for given conditions:
         sol = self.optim(ubg=0, p=param)  # Note: constraints were formulated, such that cons<=0.
 
@@ -167,17 +197,19 @@ class optimal_traffic_scheduler:
         s_traj = [s_traj[[k]].T for k in range(self.N_steps)]
 
         # Calculate trajectory for bandwidth and memory:
-        bandwidth_traj = [(np.sum(v_out_k, keepdims=True)+np.sum(v_in_k, keepdims=True))/self.v_max for v_out_k,
-                          v_in_k in zip(v_out_traj, v_in_traj)]
+        bandwidth_node_traj = [(np.sum(v_out_k, keepdims=True)+np.sum(v_in_k, keepdims=True))/self.v_max for v_out_k,
+                               v_in_k in zip(v_out_traj, v_in_traj)]
 
-        memory_traj = [np.sum(s_k, keepdims=True)/self.s_max for s_k in s_traj]
+        memory_node_traj = [np.sum(s_k, keepdims=True)/self.s_max for s_k in s_traj]
 
         self.predict['v_in'] = v_in_traj
         self.predict['v_out'] = v_out_traj
         self.predict['c'] = c_traj
         self.predict['s'] = s_traj
-        self.predict['bandwidth_load'] = bandwidth_traj
-        self.predict['memory_load'] = memory_traj
+        self.predict['bandwidth_load'] = bandwidth_node_traj
+        self.predict['memory_load'] = memory_node_traj
+        self.predict['bandwidth_load_target'] = np.copy(bandwidth_target_traj)
+        self.predict['memory_load_target'] = np.copy(memory_target_traj)
 
         self.time += self.dt
 
@@ -188,8 +220,10 @@ class optimal_traffic_scheduler:
             self.record['v_out'].append(v_out_traj[0])
             self.record['c'].append(v_out_traj[0])
             self.record['s'].append(s_traj[0])
-            self.record['bandwidth_load'].append(bandwidth_traj[0])
-            self.record['memory_load'].append(memory_traj[0])
+            self.record['bandwidth_load'].append(bandwidth_node_traj[0])
+            self.record['memory_load'].append(memory_node_traj[0])
+            self.record['bandwidth_load_target'].append(bandwidth_target_traj[0])
+            self.record['memory_load_target'].append(memory_target_traj[0])
         return self.predict
 
 
@@ -218,12 +252,14 @@ class ots_plotter:
         offset = 0
 
         for server_i, ots_i in enumerate(self.ots):
-
+            # Get time instances of prediction:
             pred_time = np.arange(start=ots_i.time, stop=ots_i.time+(ots_i.N_steps+1)*ots_i.dt, step=ots_i.dt)
-
+            # Calculate from v__in and composition matrix the individual incoming package streams for each buffer:
             v_in_buffer = np.concatenate([ots_i.record['v_in_buffer'][-1]]+[c@v for c, v in zip(ots_i.predict['c'], ots_i.predict['v_in'])], axis=1)
+            # Concatenate records and predictions (create numpy n-d-array) to comply with matplotlib API
             record = {name: np.concatenate(val, axis=1) for name, val in ots_i.record.items()}
-            predict = {name: np.concatenate([ots_i.record[name][-1]]+val, axis=1) for name, val in ots_i.predict.items()}
+            # For the predictions: Add the last element of the record to the sequence to avoid discontinuities in lines.
+            predict = {name: np.concatenate((ots_i.record[name][-1], *val), axis=1) for name, val in ots_i.predict.items()}
 
             for out_k in range(ots_i.n_out):
                 """Diagram 01: Incoming and Outgoing packages. """
@@ -245,17 +281,16 @@ class ots_plotter:
                 self.ax[out_k+offset, 1].legend([line[0] for line in lines[-3:]], ['Buffer Memory', 'Recorded', 'Predicted'], loc='upper left')
                 self.ax[out_k+offset, 1].set_ylim([0, ots_i.s_max*1.1])
 
-                # """Diagram 03: Load. """
-                # lines.append(self.ax[out_k+offset, 2].plot([], [], linewidth=0))  # Dummy to get legend entry
-                # pdb.set_trace()
-                # lines.append(self.ax[out_k+offset, 2].step(record['time'][0], record['bandwidth_load'][out_k], color=self.color[0]))
-                # lines.append(self.ax[out_k+offset, 2].step(record['time'][0], record['memory_load'][out_k], color=self.color[1]))
-                # lines.append(self.ax[out_k+offset, 2].plot([], [], linewidth=0))  # Dummy to get legend entry
-                # lines.append(self.ax[out_k+offset, 2].step(pred_time, predict['bandwidth_load'][out_k], color=self.color[0], linestyle='--'))
-                # lines.append(self.ax[out_k+offset, 2].step(pred_time, predict['memory_load'][out_k], color=self.color[1], linestyle='--'))
-                # self.ax[out_k+offset, 2].legend([line[0] for line in lines[-6:]], ['Recorded', 'Bandwidth', 'Memory', 'Predicted', 'Bandwidth', 'Memory'],
-                #                                 loc='upper left', ncol=2, title='Server Load')
-                # self.ax[out_k+offset, 2].set_ylim([-0.1, 1.1])
+                """Diagram 03: Load. """
+                lines.append(self.ax[out_k+offset, 2].plot([], [], linewidth=0))  # Dummy to get legend entry
+                lines.append(self.ax[out_k+offset, 2].step(record['time'][0], record['bandwidth_load_target'][out_k], color=self.color[0]))
+                lines.append(self.ax[out_k+offset, 2].step(record['time'][0], record['memory_load_target'][out_k], color=self.color[1]))
+                lines.append(self.ax[out_k+offset, 2].plot([], [], linewidth=0))  # Dummy to get legend entry
+                lines.append(self.ax[out_k+offset, 2].step(pred_time, predict['bandwidth_load_target'][out_k], color=self.color[0], linestyle='--'))
+                lines.append(self.ax[out_k+offset, 2].step(pred_time, predict['memory_load_target'][out_k], color=self.color[1], linestyle='--'))
+                self.ax[out_k+offset, 2].legend([line[0] for line in lines[-6:]], ['Recorded', 'Bandwidth', 'Memory', 'Predicted', 'Bandwidth', 'Memory'],
+                                                loc='upper left', ncol=2, title='Server Load')
+                self.ax[out_k+offset, 2].set_ylim([-0.1, 1.1])
 
             offset += ots_i.n_out
 

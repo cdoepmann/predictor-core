@@ -5,6 +5,10 @@ import pdb
 
 class input_node:
     def __init__(self, v_in_traj):
+        """
+        Mimics the behavior of a server node.
+        Contains information about the future package stream of the client.
+        """
         self.v_in_traj = v_in_traj
         self.predict = {}
 
@@ -14,6 +18,10 @@ class input_node:
 
 class output_node:
     def __init__(self, bandwidth_load, memory_load):
+        """
+        Mimics the behavior of a server node.
+        Contains information about the future bandwidth and memory load of the receiver.
+        """
         self.bandwidth_load = bandwidth_load
         self.memory_load = memory_load
         self.predict = {}
@@ -83,7 +91,7 @@ class distributed_network:
 
             # Target node(s):
             if type(connection_i['target']) is list:
-                assert len(connection_i['target']) == connection_i['node'].n_out, 'Connection has the wrong number of outputs'.
+                assert len(connection_i['target']) == connection_i['node'].n_out, 'Connection has the wrong number of outputs.'
                 bandwidth_load = np.hstack([source_i.predict['bandwidth_load'] for source_i in connection_i['target']])
                 memory_load = np.hstack([source_i.predict['memory_load'] for source_i in connection_i['target']])
             else:

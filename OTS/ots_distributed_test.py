@@ -15,7 +15,7 @@ setup_dict['v_max'] = 20  # mb/s
 setup_dict['s_max'] = 30  # mb
 setup_dict['dt'] = 1  # s
 setup_dict['N_steps'] = 20
-setup_dict['v_delta_penalty'] = 0.1
+setup_dict['v_delta_penalty'] = 10
 
 setup_dict.update({'n_out': 2})
 ots_1 = optimal_traffic_scheduler(setup_dict)
@@ -37,7 +37,7 @@ c2 = [np.array([[1]])]*setup_dict['N_steps']
 c3 = [np.array([[1, 1]])]*setup_dict['N_steps']
 
 if input_mode == 1:  # smoothed random values
-    v_in_traj = np.convolve(8*np.random.rand(seq_length), np.ones(seq_length//10)/(seq_length/10), mode='same').reshape(-1, 1)
+    v_in_traj = np.convolve(18*np.random.rand(seq_length), np.ones(seq_length//10)/(seq_length/10), mode='same').reshape(-1, 1)
     v_in_traj = [v_in_traj[i].reshape(-1, 1) for i in range(v_in_traj.shape[0])]
 if input_mode == 2:  # constant input
     v_in_traj = [np.array([[8]])]*seq_length
@@ -52,7 +52,7 @@ output_node = distributed_network.output_node(bandwidth_traj, memory_traj)
 connections = [
     {'source': [input_node], 'node': ots_1, 'target': [ots_2, ots_3]},
     {'source': [ots_1],      'node': ots_2, 'target': [ots_3]},
-    {'source': [ots_2, ],    'node': ots_3, 'target': [output_node]},
+    {'source': [ots_2, ots_1],    'node': ots_3, 'target': [output_node]},
 ]
 
 
