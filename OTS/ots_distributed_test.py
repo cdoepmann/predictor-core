@@ -58,12 +58,8 @@ connections = [
 
 dn = distributed_network.distributed_network([input_node], [output_node], connections, setup_dict['N_steps'])
 
-dn.simulate(c_list=[c1, c2, c3])
-dn.simulate(c_list=[c1, c2, c3])
 
 ots_1_plot = ots_plotter([ots_1, ots_2, ots_3])
-
-ots_1_plot.plot(1)
 
 
 def update(k):
