@@ -62,26 +62,45 @@ input_nodes = [input_node_1]
 output_nodes = [output_node_1]
 
 
-def get_edges(connections):
+def get_edges_nodes(connections):
     """
-    Returns a list with each element being a dict with keys 'source' -> 'target'.
+    Input: Connections must be of the format:
+    connections = [
+        {'source': [input], 'node': ots_1, 'target': [ots_2, ots_3]},
+        ...
+        }
+    where each element of the list is a dict with the keywords 'source', 'node' and 'target'.
+    'source' and 'target' must be lists of input, output or ots objects. 'node' must be an 'ots' object.
+    Returns:
+    - pandas.DataFrame with columns 'source' and 'target'. That define edges of a network.
     There are no duplicate edges.
+    - pandas.DataFrame with columns 'nodes'. That defines the nodes of a network
     """
+    # Initialize empty list. Each list item will contain a dict with 'source' and 'target'.
+    # Note that each element in the "connections" list contains exactly one node but may contain multiple sources and targets.
     edges = []
+    nodes = {'nodes': []}
     for connection_i in connections:
+        nodes['nodes'].append(connection_i['node'])
         for source_k in connection_i['source']:
             edges.append({'source': source_k, 'target': connection_i['node']})
+            nodes['nodes'].append(source_k)
         for target_k in connection_i['target']:
             edges.append({'source': connection_i['node'], 'target': target_k})
-    edge_df = pd.DataFrame(edges)
-    edge_df_rmv_duplicate = edge_df.drop_duplicates().reindex()
+            nodes['nodes'].append(target_k)
+    edges_df = pd.DataFrame(edges)
+    nodes_df = pd.DataFrame(nodes)
 
-    # return edge_df_rmv_duplicate.to_dict('records')
-    return edge_df_rmv_duplicate
+    # Drop the duplicates, reset the index and delete the column (axis=1) that contains the old indices.
+    edges_df_rmv_duplicate = edges_df.drop_duplicates().reset_index().drop('index', axis=1)
+    nodes_df_rmv_duplicate = nodes_df.drop_duplicates().reset_index().drop('index', axis=1)
+
+    return edges_df_rmv_duplicate, nodes_df_rmv_duplicate
 
 
 dn = distributed_network.distributed_network(input_nodes, output_nodes, connections, setup_dict['N_steps'])
-for i in range(5):
+
+for i in range(3):
     dn.simulate(c_list=[c1, c2, c3])
 
 color = plt.rcParams['axes.prop_cycle'].by_key()['color']
@@ -93,14 +112,14 @@ ots_vert = [{'object': vert['node'], 'vert': g.add_vertex()} for vert in connect
 output_vert = [{'object': vert, 'vert': g.add_vertex()} for vert in output_nodes]
 
 vert_dt = pd.DataFrame(input_vert+ots_vert+output_vert)
-edge_list = get_edges(connections)
+edge_list, node_list = get_edges_nodes(connections)
 edge_list['edge'] = None
 for i, edge_i in edge_list.iterrows():
     source_i = vert_dt[vert_dt['object'] == edge_i['source']]
     target_i = vert_dt[vert_dt['object'] == edge_i['target']]
     edge_list['edge'][i] = g.add_edge(source_i.vert.values[0], target_i.vert.values[0])
 
-pdb.set_trace()
+
 vert_size = g.new_vertex_property('double')
 vert_size.a = 20*np.random.rand(g.num_vertices())+5
 
@@ -124,8 +143,11 @@ for i in range(g.num_vertices()):
 
 
 e_width = g.new_edge_property('double')
-e_width.a = 5*np.random.rand(g.num_edges())+1
-# pdb.set_trace()
+for i, edge_i in edge_list.iterrows():
+    pdb.set_trace()
+    source_i =
+    e_width[edge_i['edge']] = 5
+
 # for i, edge_i in enumerate(edge_list):
 #     vert_dt[vert_dt['object'] == edge_i['source']]
 #     e_width[i] = edge_i['source'].predict['v_out'][0]
