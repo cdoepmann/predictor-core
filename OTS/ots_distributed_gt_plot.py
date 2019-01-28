@@ -82,17 +82,19 @@ def get_edges_nodes(connections):
     nodes = {'node': []}
     for connection_i in connections:
         nodes['node'].append(connection_i['node'])
-        for source_k in connection_i['source']:
-            edges.append({'source': source_k, 'target': connection_i['node']})
+        for k, source_k in enumerate(connection_i['source']):
+            con_obj = 'ots' if type(source_k) == optimal_traffic_scheduler else 'input_node'
+            edges.append({'source': source_k, 'target': connection_i['node'], 'con_type': 0, 'node_ind': k, 'con_obj': con_obj})
             nodes['node'].append(source_k)
-        for target_k in connection_i['target']:
-            edges.append({'source': connection_i['node'], 'target': target_k})
+        for k, target_k in enumerate(connection_i['target']):
+            con_obj = 'ots' if type(target_k) == optimal_traffic_scheduler else 'output_node'
+            edges.append({'source': connection_i['node'], 'target': target_k, 'con_type': 1, 'node_ind': k, 'con_obj': con_obj})
             nodes['node'].append(target_k)
     edges_df = pd.DataFrame(edges)
     nodes_df = pd.DataFrame(nodes)
 
     # Drop the duplicates, reset the index and delete the column (axis=1) that contains the old indices.
-    edges_df_rmv_duplicate = edges_df.drop_duplicates().reset_index().drop('index', axis=1)
+    edges_df_rmv_duplicate = edges_df.drop_duplicates(subset=['source', 'target']).reset_index().drop('index', axis=1)
     nodes_df_rmv_duplicate = nodes_df.drop_duplicates().reset_index().drop('index', axis=1)
 
     return edges_df_rmv_duplicate, nodes_df_rmv_duplicate
@@ -118,7 +120,7 @@ min_vert_size = 20
 
 # Convert connections to edges and nodes:
 edge_list, node_list = get_edges_nodes(connections)
-
+pdb.set_trace()
 # Add a vertex to the graph for every node and save it with the respective node object:
 node_list['vert'] = None
 for i, node_i in node_list.iterrows():
@@ -190,18 +192,20 @@ for i, node_i in node_list.iterrows():
 
 
 vert_prop.pop('pie_colors',)
+
 # Create property maps for the edges:
 edge_prop = {}
 
 edge_prop['pen_width'] = g.new_edge_property('double')
-for i, edge_i in edge_list.iterrows():
-    pdb.set_trace()
-    edge_i['source'].record['v_out']
-    edge_prop['pen_width'][edge_i['edge']] = 5
 
-# for i, edge_i in enumerate(edge_list):
-#     vert_dt[vert_dt['object'] == edge_i['source']]
-#     e_width[i] = edge_i['source'].predict['v_out'][0]
+
+for i, edge_i in edge_list.iterrows():
+    if edge_i['con_type'] == 0:  # source to node connection
+        v = edge_i['target'].record['v_in'][-1][edge_i['node_ind']]
+    elif edge_i['con_type'] == 1:  # node to target connection
+        v = edge_i['source'].record['v_out'][-1][edge_i['node_ind']]
+
+    edge_prop['pen_width'][edge_i['edge']] = v
 
 
 pos = gt.sfdp_layout(g, K=0.2)
