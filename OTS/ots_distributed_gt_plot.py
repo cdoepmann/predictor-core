@@ -103,9 +103,18 @@ dn = distributed_network.distributed_network(input_nodes, output_nodes, connecti
 for i in range(3):
     dn.simulate(c_list=[c1, c2, c3])
 
-color = plt.rcParams['axes.prop_cycle'].by_key()['color']
 
 g = gt.Graph()
+# Standard matplotlib colors as vectors with opacity as last entry.
+colors = [(0.12, 0.47, 0.71, 1.), (1.0, 0.5, 0.05, 1.),
+          (0.17, 0.62, 0.17, 1.), (0.84, 0.15, 0.16, 1.),
+          (0.58, 0.4, 0.74, 1.), (0.55, 0.34, 0.29, 1.),
+          (0.89, 0.47, 0.76, 1.)]
+
+
+# Base line settings:
+min_vert_size = 20
+
 
 # Convert connections to edges and nodes:
 edge_list, node_list = get_edges_nodes(connections)
@@ -123,63 +132,77 @@ for i, edge_i in edge_list.iterrows():
     edge_list['edge'][i] = g.add_edge(source_i.vert.values[0], target_i.vert.values[0])
 
 # Create property maps for the vertices:
-vert_size = g.new_vertex_property('double')
+vert_prop = {}
 
-vert_shape = g.new_vertex_property('string')
-vert_comp = g.new_vertex_property('vector<double>')
+vert_prop['size'] = g.new_vertex_property('double')
+vert_prop['shape'] = g.new_vertex_property('string')
+vert_prop['pie_fractions'] = g.new_vertex_property('vector<double>')
+vert_prop['pie_colors'] = g.new_vertex_property('vector<double>')
+vert_prop['halo'] = g.new_vertex_property('bool')
+vert_prop['halo_size'] = g.new_vertex_property('double')
+vert_prop['halo_color'] = g.new_vertex_property('vector<double>')
+vert_prop['fill_color'] = g.new_vertex_property('vector<double>')
 
-halo = g.new_vertex_property('bool')
-halo_size = g.new_vertex_property('double')
-halo_color = g.new_vertex_property('vector<double>')
-
-vert_fill_color = g.new_vertex_property('vector<double>')
-
+# Assign properties for each node:
 for i, node_i in node_list.iterrows():
+    # Differentiate between Input object, output object and ots object:
     if type(node_i['node']) == optimal_traffic_scheduler:
+        # Get information from node and calculate composition of buffer
         bandwidth_load = node_i['node'].record['bandwidth_load'][-1]
         memory_load = node_i['node'].record['memory_load'][-1]
         s = node_i['node'].record['s'][-1]
         if not np.sum(s) == 0:
-            comp = s / np.sum(s)
+            pie_fractions = s / np.sum(s)
         else:
             # If all buffer are empty, display that all are equally full.
-            comp = np.ones(s.shape)/np.size(s)
+            pie_fractions = np.ones(s.shape)/np.size(s)
 
-        vert_size[node_i['vert']] = np.sum(s)
-        vert_fill_color[node_i['vert']] = [0.15, 0.73, 0.05, 0.8]  # dummy value
-        halo[node_i['vert']] = True
-        halo_color[node_i['vert']] = [1.0, 0.16, 0.27, 0.98]
-        halo_size[node_i['vert']] = 1 + np.maximum(bandwidth_load, memory_load)
-        vert_shape[node_i['vert']] = 'pie'
-        vert_comp[node_i['vert']] = comp.ravel().tolist()
+        vert_prop['size'][node_i['vert']] = np.maximum(np.sum(s), min_vert_size)
+        vert_prop['fill_color'][node_i['vert']] = [0.15, 0.73, 0.05, 0.8]  # dummy value
+        vert_prop['halo'][node_i['vert']] = True
+        vert_prop['halo_color'][node_i['vert']] = [1.0, 0.16, 0.27, 0.5]
+        vert_prop['halo_size'][node_i['vert']] = 1 + np.maximum(bandwidth_load, memory_load)
+        vert_prop['shape'][node_i['vert']] = 'pie'
+        vert_prop['pie_fractions'][node_i['vert']] = pie_fractions.ravel().tolist()
+        if np.size(s) > 1:
+            vert_prop['pie_colors'] = colors[:np.size(s)]
+        else:
+            vert_prop['pie_colors'] = [colors[0]]
+
     elif type(node_i['node']) == distributed_network.input_node:
-        halo[node_i['vert']] = False  # dummy value
-        halo_color[node_i['vert']] = [0.18, 0.76, 0.0, 0.8]  # dummy value
-        vert_shape[node_i['vert']] = 'square'
-        vert_comp[node_i['vert']] = [0]  # dummy value
-        vert_fill_color[node_i['vert']] = [0.15, 0.73, 0.05, 0.8]
+        vert_prop['size'][node_i['vert']] = min_vert_size
+        vert_prop['halo'][node_i['vert']] = False  # dummy value
+        vert_prop['halo_color'][node_i['vert']] = [0.18, 0.76, 0.0, 0.3]  # dummy value
+        vert_prop['halo_size'][node_i['vert']] = 0  # dummy value
+        vert_prop['shape'][node_i['vert']] = 'square'
+        vert_prop['pie_fractions'][node_i['vert']] = [0]  # dummy value
+        vert_prop['pie_colors'] = [colors[0]]  # dummy value
+        vert_prop['fill_color'][node_i['vert']] = [0.15, 0.73, 0.05, 0.8]
     elif type(node_i['node']) == distributed_network.output_node:
-        halo[node_i['vert']] = False  # dummy value
-        halo_color[node_i['vert']] = [0.18, 0.76, 0.0, 0.8]  # dummy value
-        vert_shape[node_i['vert']] = 'square'
-        vert_comp[node_i['vert']] = [0]  # dummy value
-        vert_fill_color[node_i['vert']] = [1.0, 0.16, 0.27, 0.98]
+        vert_prop['size'][node_i['vert']] = min_vert_size
+        vert_prop['halo'][node_i['vert']] = False  # dummy value
+        vert_prop['halo_color'][node_i['vert']] = [0.18, 0.76, 0.0, 0.8]  # dummy value
+        vert_prop['halo_size'][node_i['vert']] = 0  # dummy value
+        vert_prop['shape'][node_i['vert']] = 'square'
+        vert_prop['pie_fractions'][node_i['vert']] = [0]  # dummy value
+        vert_prop['pie_colors'] = [colors[0]]  # dummy value
+        vert_prop['fill_color'][node_i['vert']] = [1.0, 0.16, 0.27, 0.98]
 
 
-e_width = g.new_edge_property('double')
+vert_prop.pop('pie_colors',)
+# Create property maps for the edges:
+edge_prop = {}
+
+edge_prop['pen_width'] = g.new_edge_property('double')
 for i, edge_i in edge_list.iterrows():
-    # pdb.set_trace()
-    e_width[edge_i['edge']] = 5
+    pdb.set_trace()
+    edge_i['source'].record['v_out']
+    edge_prop['pen_width'][edge_i['edge']] = 5
 
 # for i, edge_i in enumerate(edge_list):
 #     vert_dt[vert_dt['object'] == edge_i['source']]
 #     e_width[i] = edge_i['source'].predict['v_out'][0]
 
 
-vprops = {'size': vert_size, 'shape': vert_shape, 'fill_color': vert_fill_color,
-          'pie_fractions': vert_comp, 'halo': halo, 'halo_size': halo_size,
-          'halo_color': halo_color}
-eprops = {'pen_width': e_width}
 pos = gt.sfdp_layout(g, K=0.2)
-
-gt.graph_draw(g, pos=pos, vprops=vprops, eprops=eprops, output_size=(800, 400))
+gt.graph_draw(g, pos=pos, vprops=vert_prop, eprops=edge_prop, output_size=(800, 400))
