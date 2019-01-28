@@ -79,15 +79,15 @@ def get_edges_nodes(connections):
     # Initialize empty list. Each list item will contain a dict with 'source' and 'target'.
     # Note that each element in the "connections" list contains exactly one node but may contain multiple sources and targets.
     edges = []
-    nodes = {'nodes': []}
+    nodes = {'node': []}
     for connection_i in connections:
-        nodes['nodes'].append(connection_i['node'])
+        nodes['node'].append(connection_i['node'])
         for source_k in connection_i['source']:
             edges.append({'source': source_k, 'target': connection_i['node']})
-            nodes['nodes'].append(source_k)
+            nodes['node'].append(source_k)
         for target_k in connection_i['target']:
             edges.append({'source': connection_i['node'], 'target': target_k})
-            nodes['nodes'].append(target_k)
+            nodes['node'].append(target_k)
     edges_df = pd.DataFrame(edges)
     nodes_df = pd.DataFrame(nodes)
 
@@ -107,45 +107,68 @@ color = plt.rcParams['axes.prop_cycle'].by_key()['color']
 
 g = gt.Graph()
 
-input_vert = [{'object': vert, 'vert': g.add_vertex()} for vert in input_nodes]
-ots_vert = [{'object': vert['node'], 'vert': g.add_vertex()} for vert in connections]
-output_vert = [{'object': vert, 'vert': g.add_vertex()} for vert in output_nodes]
-
-vert_dt = pd.DataFrame(input_vert+ots_vert+output_vert)
+# Convert connections to edges and nodes:
 edge_list, node_list = get_edges_nodes(connections)
+
+# Add a vertex to the graph for every node and save it with the respective node object:
+node_list['vert'] = None
+for i, node_i in node_list.iterrows():
+    node_list['vert'][i] = g.add_vertex()
+
+# Add an edge to the graph for every connection and save it with the respective 'source' and 'target' objects:
 edge_list['edge'] = None
 for i, edge_i in edge_list.iterrows():
-    source_i = vert_dt[vert_dt['object'] == edge_i['source']]
-    target_i = vert_dt[vert_dt['object'] == edge_i['target']]
+    source_i = node_list[node_list['node'] == edge_i['source']]
+    target_i = node_list[node_list['node'] == edge_i['target']]
     edge_list['edge'][i] = g.add_edge(source_i.vert.values[0], target_i.vert.values[0])
 
-
+# Create property maps for the vertices:
 vert_size = g.new_vertex_property('double')
-vert_size.a = 20*np.random.rand(g.num_vertices())+5
-
 
 vert_shape = g.new_vertex_property('string')
 vert_comp = g.new_vertex_property('vector<double>')
-
-comp = np.random.rand(g.num_vertices(), 3)
-comp /= np.sum(comp, axis=0, keepdims=True)
 
 halo = g.new_vertex_property('bool')
 halo_size = g.new_vertex_property('double')
 halo_color = g.new_vertex_property('vector<double>')
 
-for i in range(g.num_vertices()):
-    halo[i] = True
-    halo_size[i] = 1.5
-    vert_shape[i] = 'pie'
-    vert_comp[i] = comp[i].tolist()
-    halo_color[i] = [1.0, 0.16, 0.27, 0.98]
+vert_fill_color = g.new_vertex_property('vector<double>')
+
+for i, node_i in node_list.iterrows():
+    if type(node_i['node']) == optimal_traffic_scheduler:
+        bandwidth_load = node_i['node'].record['bandwidth_load'][-1]
+        memory_load = node_i['node'].record['memory_load'][-1]
+        s = node_i['node'].record['s'][-1]
+        if not np.sum(s) == 0:
+            comp = s / np.sum(s)
+        else:
+            # If all buffer are empty, display that all are equally full.
+            comp = np.ones(s.shape)/np.size(s)
+
+        vert_size[node_i['vert']] = np.sum(s)
+        vert_fill_color[node_i['vert']] = [0.15, 0.73, 0.05, 0.8]  # dummy value
+        halo[node_i['vert']] = True
+        halo_color[node_i['vert']] = [1.0, 0.16, 0.27, 0.98]
+        halo_size[node_i['vert']] = 1 + np.maximum(bandwidth_load, memory_load)
+        vert_shape[node_i['vert']] = 'pie'
+        vert_comp[node_i['vert']] = comp.ravel().tolist()
+    elif type(node_i['node']) == distributed_network.input_node:
+        halo[node_i['vert']] = False  # dummy value
+        halo_color[node_i['vert']] = [0.18, 0.76, 0.0, 0.8]  # dummy value
+        vert_shape[node_i['vert']] = 'square'
+        vert_comp[node_i['vert']] = [0]  # dummy value
+        vert_fill_color[node_i['vert']] = [0.15, 0.73, 0.05, 0.8]
+    elif type(node_i['node']) == distributed_network.output_node:
+        halo[node_i['vert']] = False  # dummy value
+        halo_color[node_i['vert']] = [0.18, 0.76, 0.0, 0.8]  # dummy value
+        vert_shape[node_i['vert']] = 'square'
+        vert_comp[node_i['vert']] = [0]  # dummy value
+        vert_fill_color[node_i['vert']] = [1.0, 0.16, 0.27, 0.98]
 
 
 e_width = g.new_edge_property('double')
 for i, edge_i in edge_list.iterrows():
-    pdb.set_trace()
-    source_i =
+    # pdb.set_trace()
     e_width[edge_i['edge']] = 5
 
 # for i, edge_i in enumerate(edge_list):
@@ -153,7 +176,7 @@ for i, edge_i in edge_list.iterrows():
 #     e_width[i] = edge_i['source'].predict['v_out'][0]
 
 
-vprops = {'size': vert_size, 'shape': vert_shape,
+vprops = {'size': vert_size, 'shape': vert_shape, 'fill_color': vert_fill_color,
           'pie_fractions': vert_comp, 'halo': halo, 'halo_size': halo_size,
           'halo_color': halo_color}
 eprops = {'pen_width': e_width}
