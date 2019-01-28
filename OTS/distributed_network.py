@@ -113,7 +113,7 @@ class ots_gt_plot:
     def __init__(self, dn, connections):
         # Base line settings:
         self.settings = {}
-        self.settings['min_vert_size'] = 20
+        self.settings['min_vert_size'] = 1
         self.dn = dn
 
         # Standard matplotlib colors as vectors with opacity as last entry.
@@ -166,7 +166,7 @@ class ots_gt_plot:
         gt.graph_draw(self.g, pos=self.pos, vprops=self.vert_prop, eprops=self.edge_prop, output_node=(800, 400))
 
     def anim_gt(self, c_list):
-        self.win = gt.GraphWindow(self.g, self.pos, geometry=(800, 400), vprops=self.vert_prop, eprops=self.edge_prop)
+        self.win = gt.GraphWindow(self.g, self.pos, geometry=(1000, 500), vprops=self.vert_prop, eprops=self.edge_prop)
         self.c_list = c_list
 
         # Bind the function above as an 'idle' callback.
@@ -209,7 +209,7 @@ class ots_gt_plot:
                 self.vert_prop['pie_fractions'][node_i['vert']] = pie_fractions.ravel().tolist()
 
             elif type(node_i['node']) == input_node:
-                self.vert_prop['size'][node_i['vert']] = self.settings['min_vert_size']
+                self.vert_prop['size'][node_i['vert']] = 20
                 self.vert_prop['halo'][node_i['vert']] = False  # dummy value
                 self.vert_prop['halo_color'][node_i['vert']] = [0.18, 0.76, 0.0, 0.3]  # dummy value
                 self.vert_prop['halo_size'][node_i['vert']] = 0  # dummy value
@@ -217,7 +217,7 @@ class ots_gt_plot:
                 self.vert_prop['pie_fractions'][node_i['vert']] = [0]  # dummy value
                 self.vert_prop['fill_color'][node_i['vert']] = [0.15, 0.73, 0.05, 0.8]
             elif type(node_i['node']) == output_node:
-                self.vert_prop['size'][node_i['vert']] = self.settings['min_vert_size']
+                self.vert_prop['size'][node_i['vert']] = 20
                 self.vert_prop['halo'][node_i['vert']] = False  # dummy value
                 self.vert_prop['halo_color'][node_i['vert']] = [0.18, 0.76, 0.0, 0.8]  # dummy value
                 self.vert_prop['halo_size'][node_i['vert']] = 0  # dummy value

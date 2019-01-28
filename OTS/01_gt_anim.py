@@ -19,7 +19,7 @@ setup_dict['v_max'] = 20  # mb/s
 setup_dict['s_max'] = 30  # mb
 setup_dict['dt'] = 1  # s
 setup_dict['N_steps'] = 10
-setup_dict['v_delta_penalty'] = 30
+setup_dict['v_delta_penalty'] = 0
 
 setup_dict.update({'n_out': 2})
 ots_1 = optimal_traffic_scheduler(setup_dict)
@@ -30,7 +30,7 @@ ots_3 = optimal_traffic_scheduler(setup_dict)
 # Input -> ots_1 -> out_2 -> out_3 -> Output
 
 
-seq_length = 100
+seq_length = 300
 input_mode = 1
 
 # Rows -> Outputs
