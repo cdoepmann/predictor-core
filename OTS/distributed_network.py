@@ -113,7 +113,8 @@ class ots_gt_plot:
     def __init__(self, dn, connections):
         # Base line settings:
         self.settings = {}
-        self.settings['min_vert_size'] = 1
+        self.settings['min_vert_size'] = 20
+
         self.dn = dn
 
         # Standard matplotlib colors as vectors with opacity as last entry.
@@ -146,6 +147,7 @@ class ots_gt_plot:
         vert_prop = {}
         vert_prop['size'] = g.new_vertex_property('double')
         vert_prop['shape'] = g.new_vertex_property('string')
+        vert_prop['text'] = g.new_vertex_property('string')
         vert_prop['pie_fractions'] = g.new_vertex_property('vector<double>')
         vert_prop['halo'] = g.new_vertex_property('bool')
         vert_prop['halo_size'] = g.new_vertex_property('double')
@@ -177,6 +179,10 @@ class ots_gt_plot:
         Gtk.main()
 
     def anim_update(self):
+        """
+        Update function that is called by the animation. Simulates the distributed network, sets the properties of
+        the visualization depending on the current state and plots the visualization.
+        """
         self.dn.simulate(c_list=self.c_list)
         self.set_properties()
 
@@ -199,32 +205,24 @@ class ots_gt_plot:
                 else:
                     # If all buffer are empty, display that all are equally full.
                     pie_fractions = np.ones(s.shape)/np.size(s)
-
+                # Set properties:
                 self.vert_prop['size'][node_i['vert']] = np.maximum(np.sum(s), self.settings['min_vert_size'])
+                self.vert_prop['text'][node_i['vert']] = '{:.0f}'.format(float(np.sum(s)))
                 self.vert_prop['fill_color'][node_i['vert']] = [0.15, 0.73, 0.05, 0.8]  # dummy value
                 self.vert_prop['halo'][node_i['vert']] = True
                 self.vert_prop['halo_color'][node_i['vert']] = [1.0, 0.16, 0.27, 0.5]
-                self.vert_prop['halo_size'][node_i['vert']] = 1 + np.maximum(bandwidth_load, memory_load)
+                self.vert_prop['halo_size'][node_i['vert']] = 1 + 20*bandwidth_load/self.vert_prop['size'][node_i['vert']]
                 self.vert_prop['shape'][node_i['vert']] = 'pie'
                 self.vert_prop['pie_fractions'][node_i['vert']] = pie_fractions.ravel().tolist()
-
             elif type(node_i['node']) == input_node:
                 self.vert_prop['size'][node_i['vert']] = 20
-                self.vert_prop['halo'][node_i['vert']] = False  # dummy value
-                self.vert_prop['halo_color'][node_i['vert']] = [0.18, 0.76, 0.0, 0.3]  # dummy value
-                self.vert_prop['halo_size'][node_i['vert']] = 0  # dummy value
                 self.vert_prop['shape'][node_i['vert']] = 'square'
-                self.vert_prop['pie_fractions'][node_i['vert']] = [0]  # dummy value
                 self.vert_prop['fill_color'][node_i['vert']] = [0.15, 0.73, 0.05, 0.8]
             elif type(node_i['node']) == output_node:
                 self.vert_prop['size'][node_i['vert']] = 20
-                self.vert_prop['halo'][node_i['vert']] = False  # dummy value
-                self.vert_prop['halo_color'][node_i['vert']] = [0.18, 0.76, 0.0, 0.8]  # dummy value
-                self.vert_prop['halo_size'][node_i['vert']] = 0  # dummy value
                 self.vert_prop['shape'][node_i['vert']] = 'square'
-                self.vert_prop['pie_fractions'][node_i['vert']] = [0]  # dummy value
                 self.vert_prop['fill_color'][node_i['vert']] = [1.0, 0.16, 0.27, 0.98]
-
+        # Assign properties for each edge:
         for i, edge_i in self.edge_list.iterrows():
             if edge_i['con_type'] == 0:  # source to node connection
                 v = edge_i['target'].record['v_in'][-1][edge_i['node_ind']]
