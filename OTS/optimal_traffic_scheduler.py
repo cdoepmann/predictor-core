@@ -63,17 +63,14 @@ class optimal_traffic_scheduler:
         cons = [
             # maximum bandwidth cant be exceeded
             sum1(v_in)+sum1(v_out) - self.v_max,
-            sum1(s)-self.s_max,  # maximum (buffer)memory capacity cant be exceeded
-            # TODO :
             -s,  # buffer memory cant be <0 (for each output buffer)
             -v_out,  # outgoing package stream cant be negative
-            -v_out*(0.99-bandwidth_load),
-            -v_out*(0.99-memory_load),
         ]
         cons = vertcat(*cons)
 
         # Maximize bandwidth  and maximize buffer:(under consideration of outgoing server load)
-        obj = sum1((1-bandwidth_load)*(1-memory_load)*(-v_out/self.v_max+s/self.s_max))
+        # Note that 0<bandwidth_load<1 and memory_load is normalized by s_max but can exceed 1.
+        obj = sum1(((1-bandwidth_load)/fmax(memory_load, 1))*(-v_out/self.v_max+s/self.s_max))
 
         mpc_problem = {}
         mpc_problem['cons'] = Function(
@@ -182,11 +179,13 @@ class optimal_traffic_scheduler:
         # Reshape composition matrix for each time step:
         c_traj_reshape = [c_i.reshape(-1, 1) for c_i in c_traj]
         # Get previous solution:
-        v_out_prev_traj = self.predict['v_out'][1:]
+        v_out_prev_traj = self.predict['v_out']
         # Create concatented parameter vector:
-        param = np.concatenate((s0, *v_in_traj, *c_traj_reshape, *v_out_prev_traj, *bandwidth_target_traj, *memory_target_traj), axis=0)
+        param = np.concatenate((s0, *v_in_traj, *c_traj_reshape, *v_out_prev_traj[1:], *bandwidth_target_traj, *memory_target_traj), axis=0)
+        # Get initial condition:
+        x0 = np.concatenate(v_out_prev_traj, axis=0)
         # Solve optimization problem for given conditions:
-        sol = self.optim(ubg=0, p=param)  # Note: constraints were formulated, such that cons<=0.
+        sol = self.optim(ubg=0, p=param, x0=x0)  # Note: constraints were formulated, such that cons<=0.
 
         # Retrieve trajectory of outgoing package streams:
         x = sol['x'].full().reshape(self.N_steps, -1)
