@@ -73,42 +73,35 @@ nodes['n_out'] = None
 
 # Run only once to get information:
 for k, node_k in nodes.iterrows():
+    # Boolean array that indicates in which connections node_k is the source.
+    # This determines how many outputs the current node.
     node_k['con_out'] = (connections['source'] == node_k['node']).values
     node_k['n_out'] = sum(node_k['con_out'])
+    # The output of each node is a vector with n_out elements. 'output_ind' marks which
+    # of its elements refers to which connection:
     connections.loc[node_k['con_out'], 'output_ind'] = np.arange(node_k['n_out']).tolist()
-
+    # Boolean array that indicates in which connections node_k is the target. This determines the
+    # number of inputs.
     node_k['con_in'] = (connections['target'] == node_k['node']).values
     node_k['n_in'] = sum(node_k['con_in'])
 
 
 # In every simulation:
+# a) Determine associated properties for every connection that are determined by the source and target:
 for i, connection_i in connections.iterrows():
+    # Package stream is depending on the source. Create [N_timesteps x n_outputs x 1] array (with np.stack())
+    # and access the element that is stored in 'output_ind' for each connection.
     connection_i['v'] = np.stack(connection_i['source'].predict['v_out'])[:, [connection_i['output_ind']], :]
+    # Bandwidth and memory load are depending on the target. Create [N_timesteps x 1 x1] array.
     connection_i['bandwidth_load'] = np.stack(connection_i['target'].predict['bandwidth_load'])
     connection_i['memory_load'] = np.stack(connection_i['target'].predict['bandwidth_load'])
 
+# b) Iterate over all nodes, query respective I/O data from connections and simulate node
 for k, node_k in nodes.iterrows():
+    # Simulate only if the node is an optimal_traffic_scheduler.
     if type(node_k.node) is optimal_traffic_scheduler:
+        # Concatenate package streams for all inputs:
         v_in = np.concatenate(connections.loc[node_k['con_in'], 'v'].values, axis=1)
+        # Concatenate bandwidth and memory load for all outputs:
         bandwidth_load = np.concatenate(connections.loc[node_k['con_out'], 'bandwidth_load'].values, axis=1)
         memory_load = np.concatenate(connections.loc[node_k['con_out'], 'memory_load'].values, axis=1)
-
-node_k.node
-connections.loc[nodes.loc[0]['con_in'], 'memory_load']
-
-
-e
-
-ind = 3
-nodes['v_in'] = None
-
-v_in = []
-for k, node_k in nodes.iterrows():
-    v_in.append([])
-    for i, con_in in connections[node_k['con_in']].iterrows():
-        v_in[k].append(np.stack(con_in['source'].predict['v_out'])[:, [con_in['output_ind']], :])
-    if v_in[k]:
-        node_k['v_in'] = np.concatenate(v_in[k], axis=1)
-
-nodes.loc[4]['v_in'].flags
-v_in_k[0].flags
