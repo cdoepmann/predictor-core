@@ -3,7 +3,8 @@ import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 from casadi import *
 import pdb
-from optimal_traffic_scheduler import optimal_traffic_scheduler, ots_plotter
+from optimal_traffic_scheduler import optimal_traffic_scheduler
+from ots_visu import ots_plotter
 import distributed_network
 np.random.seed(99)  # Luftballons
 

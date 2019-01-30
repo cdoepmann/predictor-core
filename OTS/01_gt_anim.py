@@ -1,14 +1,10 @@
-import graph_tool.all as gt
-import graph_tool
 import numpy as np
-import pandas as pd
-# We need some Gtk and gobject functions
-from gi.repository import Gtk, Gdk, GdkPixbuf, GObject
-import numpy as np
-import pdb
-from optimal_traffic_scheduler import optimal_traffic_scheduler
-import distributed_network
 import matplotlib.pyplot as plt
+import pandas as pd
+
+from optimal_traffic_scheduler import optimal_traffic_scheduler
+from ots_visu import ots_gt_plot
+import distributed_network
 np.random.seed(99)  # Luftballons
 
 
@@ -64,10 +60,6 @@ output_nodes = [output_node_1]
 
 dn = distributed_network.distributed_network(input_nodes, output_nodes, connections, setup_dict['N_steps'])
 
-# for i in range(3):
-#     dn.simulate(c_list=[c1, c2, c3])
-
-dn_plot = distributed_network.ots_gt_plot(dn, connections)
-# dn_plot.show_gt()
+dn_plot = ots_gt_plot(dn, connections)
 
 dn_plot.anim_gt(c_list=[c1, c2, c3])
