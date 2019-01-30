@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 from optimal_traffic_scheduler import optimal_traffic_scheduler
-
+import pdb
 import graph_tool.all as gt
 import graph_tool
 # We need some Gtk and gobject functions
@@ -56,7 +56,7 @@ class distributed_network:
         """
         # Check consistency of c matrix (for all elements of sequence)
         for i, c_i in enumerate(c_list):
-            if not all(np.concatenate([np.sum(c_i_k, axis=0) == 1 for c_i_k in c_i])):
+            if not all(np.concatenate([np.sum(c_i_k, axis=0)-1 < 1e-6 for c_i_k in c_i])):
                 raise Exception('Composition Matrix has a row sum that is not equal to 1. Data is lost or created in connection: {}'.format(i))
 
         for input_i in self.inputs:
