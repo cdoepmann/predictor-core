@@ -114,25 +114,25 @@ circuits = [
 
 
 def circ_2_network(circuits):
+    """
+    Create nodes and connections DataFrame from circuit dict.
+    Each connection has a new attribute 'circuit' that lists all the circuits that are active.
+    """
     connections = []
-    nodes = []
+    nodes = {'node': []}
     for i, circuit_i in enumerate(circuits):
         connections.extend([{'source': circuit_i['route'][k], 'target': circuit_i['route'][k+1], 'circuit':[i]}
                             for k in range(len(circuit_i['route'])-1)])
-        nodes.extend(circuit_i['route'])
+        nodes['node'].extend(circuit_i['route'])
     con_pd = pd.DataFrame(connections)
     nodes_pd = pd.DataFrame(nodes).drop_duplicates().reset_index().drop('index', axis=1)
+    # Identify duplicate connections (same source and target) and add which circuit is active.
+    for i, dupl_con in con_pd[con_pd.duplicated(subset=['source', 'target'])].reset_index().iterrows():
+        con_pd[(con_pd.source == dupl_con.source) & (con_pd.target == dupl_con.target)].circuit.values[0].extend(dupl_con['circuit'])
+    con_pd = con_pd.drop_duplicates(subset=['source', 'target'])
     return con_pd, nodes_pd
 
 
 con_pd, nodes_pd = circ_2_network(circuits)
 
-
-for i, dupl_con in con_pd[con_pd.duplicated(subset=['source', 'target'])].reset_index().iterrows():
-    con_pd[(con_pd.source == dupl_con.source) & (con_pd.target == dupl_con.target)].circuit.values[0].extend(dupl_con['circuit'])
-
-
-con_pd.drop_duplicates(subset=['source', 'target'])
-
-con_pd
 nodes_pd
