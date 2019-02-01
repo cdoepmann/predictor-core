@@ -35,7 +35,7 @@ c2 = [np.array([[1]])]*setup_dict['N_steps']
 c3 = [np.array([[1, 1]])]*setup_dict['N_steps']
 
 
-v_in_traj = np.convolve(19*np.random.rand(seq_length), np.ones(10)/(10), mode='same').reshape(-1, 1)
+v_in_traj = np.convolve(7*np.random.rand(seq_length), np.ones(10)/(10), mode='same').reshape(-1, 1)
 v_in_traj = [v_in_traj[i].reshape(-1, 1) for i in range(v_in_traj.shape[0])]
 
 
@@ -105,3 +105,34 @@ for k, node_k in nodes.iterrows():
         # Concatenate bandwidth and memory load for all outputs:
         bandwidth_load = np.concatenate(connections.loc[node_k['con_out'], 'bandwidth_load'].values, axis=1)
         memory_load = np.concatenate(connections.loc[node_k['con_out'], 'memory_load'].values, axis=1)
+
+
+circuits = [
+    {'route': [input_node_1, ots_1, ots_2, ots_3, output_node_1], 'v_traj':v_in_traj},
+    {'route': [input_node_1, ots_1, ots_3, output_node_1], 'v_traj':v_in_traj}
+]
+
+
+def circ_2_network(circuits):
+    connections = []
+    nodes = []
+    for i, circuit_i in enumerate(circuits):
+        connections.extend([{'source': circuit_i['route'][k], 'target': circuit_i['route'][k+1], 'circuit':[i]}
+                            for k in range(len(circuit_i['route'])-1)])
+        nodes.extend(circuit_i['route'])
+    con_pd = pd.DataFrame(connections)
+    nodes_pd = pd.DataFrame(nodes).drop_duplicates().reset_index().drop('index', axis=1)
+    return con_pd, nodes_pd
+
+
+con_pd, nodes_pd = circ_2_network(circuits)
+
+
+for i, dupl_con in con_pd[con_pd.duplicated(subset=['source', 'target'])].reset_index().iterrows():
+    con_pd[(con_pd.source == dupl_con.source) & (con_pd.target == dupl_con.target)].circuit.values[0].extend(dupl_con['circuit'])
+
+
+con_pd.drop_duplicates(subset=['source', 'target'])
+
+con_pd
+nodes_pd
