@@ -158,8 +158,9 @@ class ots_gt_plot:
         """
         Display current state of the network without animation.
         """
-        self.set_properties()
-        gt.graph_draw(self.g, pos=self.pos, vprops=self.vert_prop, eprops=self.edge_prop, output_node=(800, 400))
+        # self.set_properties()
+        # vprops=self.vert_prop, eprops=self.edge_prop
+        gt.graph_draw(self.g, pos=self.pos, output_node=(800, 400))
 
     def anim_gt(self, c_list):
         self.win = gt.GraphWindow(self.g, self.pos, geometry=(1000, 500), vprops=self.vert_prop, eprops=self.edge_prop)

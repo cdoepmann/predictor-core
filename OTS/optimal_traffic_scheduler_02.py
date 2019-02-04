@@ -28,7 +28,7 @@ class optimal_traffic_scheduler:
         This is not the case, if the ots objects are created as part of a distributed network
         in which the I/O structure is created automatically.
         """
-        if n_in and n_out:
+        if n_in and n_out_buffer and n_out_circuit:
             self.n_in = n_in
             self.n_out_buffer = n_out_buffer
             self.n_out_circuit = n_out_circuit
@@ -52,7 +52,7 @@ class optimal_traffic_scheduler:
         self.predict['v_out_buffer'] = v_out_buffer
         self.predict['v_out_circuit'] = v_out_circuit
         self.predict['s_buffer'] = s_buffer
-        self.predict['s_circuit'] = s_buffer
+        self.predict['s_circuit'] = s_circuit
         self.predict['bandwidth_load'] = bandwidth_load
         self.predict['memory_load'] = memory_load
 
@@ -232,3 +232,23 @@ class optimal_traffic_scheduler:
             self.record['bandwidth_load_target'].append(bandwidth_load_target[0])
             self.record['memory_load_target'].append(memory_load_target[0])
         return self.predict
+
+    def simulate_circuits(self, output_partition):
+        v_in_circuit = self.predict['v_in_circuit']
+        v_out_buffer = self.predict['v_out_buffer']
+        s_buffer = self.predict['s_buffer']
+
+        s_circuit_0 = self.predict['s_circuit'][0]
+        v_out_circuit = []
+        s_circuit = [s_circuit_0]
+        for k in range(self.N_steps):
+            v_out_circuit.append(s_circuit[k]*(output_partition.T@(v_out_buffer[k]/np.maximum(s_buffer[k], 1e-12))))
+            s_circuit.append(s_circuit[k]+v_in_circuit[k]-v_out_circuit[k])
+
+        self.predict['v_out_circuit'] = v_out_circuit
+        self.predict['s_circuit'] = s_circuit
+
+        if self.record_values:
+            self.record['v_out_circuit'] = v_out_circuit[0]
+            self.record['v_in_circuit'] = v_in_circuit[0]
+            self.record['s_circuit'] = s_circuit[0]
