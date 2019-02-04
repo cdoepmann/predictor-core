@@ -16,12 +16,13 @@ class optimal_traffic_scheduler:
         self.time = np.array([[0]])  # 1,1 array for consistency.
 
         # Call setup, if n_in and n_out are part of the setup_dict.
-        if 'n_in' and 'n_out' in setup_dict.keys():
+        if 'n_in' and 'n_out_buffer' and 'n_out_circuit' in setup_dict.keys():
             self.n_in = setup_dict['n_in']
-            self.n_out = setup_dict['n_out']
+            self.n_out_buffer = setup_dict['n_out_buffer']
+            self.n_out_circuit = setup_dict['n_out_circuit']
             self.setup()
 
-    def setup(self, n_in=None, n_out=None):
+    def setup(self, n_in=None, n_out_buffer=None, n_out_circuit=None):
         """
         Setup is part of the __init__(), if 'n_in' and 'n_out' are already defined.
         This is not the case, if the ots objects are created as part of a distributed network
@@ -29,7 +30,8 @@ class optimal_traffic_scheduler:
         """
         if n_in and n_out:
             self.n_in = n_in
-            self.n_out = n_out
+            self.n_out_buffer = n_out_buffer
+            self.n_out_circuit = n_out_circuit
 
         self.initialize_prediction()
         if self.record_values:
@@ -39,14 +41,18 @@ class optimal_traffic_scheduler:
 
     def initialize_prediction(self):
         # Initial conditions: all zeros.
-        v_out_buffer = [np.zeros((self.n_out, 1))]*self.N_steps
-        s_buffer = [np.zeros((self.n_out, 1))]*self.N_steps
+        v_out_buffer = [np.zeros((self.n_out_buffer, 1))]*self.N_steps
+        v_out_circuit = [np.zeros((self.n_out_circuit, 1))]*self.N_steps
+        s_buffer = [np.zeros((self.n_out_buffer, 1))]*self.N_steps
+        s_circuit = [np.zeros((self.n_out_circuit, 1))]*self.N_steps
         bandwidth_load = [np.zeros((1, 1))]*self.N_steps
         memory_load = [np.zeros((1, 1))]*self.N_steps
 
         self.predict = {}
         self.predict['v_out_buffer'] = v_out_buffer
+        self.predict['v_out_circuit'] = v_out_circuit
         self.predict['s_buffer'] = s_buffer
+        self.predict['s_circuit'] = s_buffer
         self.predict['bandwidth_load'] = bandwidth_load
         self.predict['memory_load'] = memory_load
 
@@ -66,17 +72,17 @@ class optimal_traffic_scheduler:
 
     def problem_formulation(self):
         # Buffer memory
-        s_buffer = SX.sym('s_buffer', self.n_out, 1)
+        s_buffer = SX.sym('s_buffer', self.n_out_buffer, 1)
 
         # Incoming package stream for each buffer:
-        v_in_buffer = SX.sym('v_in_buffer', self.n_out, 1)
+        v_in_buffer = SX.sym('v_in_buffer', self.n_out_buffer, 1)
 
         # Outgoing packet stream
-        v_out_buffer = SX.sym('v_out_buffer', self.n_out, 1)
+        v_out_buffer = SX.sym('v_out_buffer', self.n_out_buffer, 1)
 
         # bandwidth / memory info outgoing servers
-        bandwidth_load = SX.sym('bandwidth_load', self.n_out, 1)
-        memory_load = SX.sym('memory_load', self.n_out, 1)
+        bandwidth_load = SX.sym('bandwidth_load', self.n_out_buffer, 1)
+        memory_load = SX.sym('memory_load', self.n_out_buffer, 1)
 
         # system dynamics, constraints and objective definition:
         s_next = s_buffer + self.dt*(v_in_buffer-v_out_buffer)
@@ -116,19 +122,19 @@ class optimal_traffic_scheduler:
         obj_k = 0
 
         # Initial condition:
-        s_buffer_0 = SX.sym('s_buffer_0', self.n_out, 1)
+        s_buffer_0 = SX.sym('s_buffer_0', self.n_out_buffer, 1)
 
         # Recursively evaluate system equation and add stage cost and stage constraints:
         for k in range(self.N_steps):
 
             # Incoming packet stream
-            v_buffer_in_k.append(SX.sym('v_buffer_in', self.n_out, 1))
+            v_buffer_in_k.append(SX.sym('v_buffer_in', self.n_out_buffer, 1))
             # Outgoing packet stream
-            v_buffer_out_k.append(SX.sym('v_buffer_out', self.n_out, 1))
+            v_buffer_out_k.append(SX.sym('v_buffer_out', self.n_out_buffer, 1))
 
             # For all but the last step: Penalize changes of v_buffer_out in comparison to the previous solution:
             if k < self.N_steps-1:
-                v_buffer_out_prev_k.append(SX.sym('v_buffer_out_prev', self.n_out, 1))
+                v_buffer_out_prev_k.append(SX.sym('v_buffer_out_prev', self.n_out_buffer, 1))
                 v_buffer_out_delta_k = self.v_delta_penalty*sum1((v_buffer_out_k[k]-v_buffer_out_prev_k[k])**2)/self.v_max
             else:
                 # For the last step: Penalize change of v_buffer_out in comparison to the second to last step.
@@ -137,8 +143,8 @@ class optimal_traffic_scheduler:
             obj_k += v_buffer_out_delta_k
 
             # bandwidth / memory info outgoing servers
-            bandwidth_load_k.append(SX.sym('bandwidth_load', self.n_out, 1))
-            memory_load_k.append(SX.sym('memory_load', self.n_out, 1))
+            bandwidth_load_k.append(SX.sym('bandwidth_load', self.n_out_buffer, 1))
+            memory_load_k.append(SX.sym('memory_load', self.n_out_buffer, 1))
 
             # For the first step use s_buffer_0
             if k == 0:
@@ -167,11 +173,11 @@ class optimal_traffic_scheduler:
         """
         Solves the optimal control problem defined in optimal_traffic_scheduler.problem_formulation().
         Inputs:
-        - s_buffer_0            : initial memory for each buffer (must be n_out x 1 vector)
+        - s_buffer_0            : initial memory for each buffer (must be n_out_buffer x 1 vector)
         Predicted trajectories (as lists with N_horizon elments):
-        - v_in_buffer           : Incoming package stream for each buffer (n_out x 1 vector)
-        - bandwidth_load_target : Bandwidth load of target server(s) (n_out x 1 vector)
-        - memory_load_target    : Memory load of target server(s) (n_out x 1 vector)
+        - v_in_buffer           : Incoming package stream for each buffer (n_out_buffer x 1 vector)
+        - bandwidth_load_target : Bandwidth load of target server(s) (n_out_buffer x 1 vector)
+        - memory_load_target    : Memory load of target server(s) (n_out_buffer x 1 vector)
 
         Populates the "predict" and "record" dictonaries of the class.
         - Predict: Constantly overwritten variables that save the current optimized state and control trajectories of the node
