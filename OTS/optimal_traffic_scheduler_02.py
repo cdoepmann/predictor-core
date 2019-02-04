@@ -5,7 +5,8 @@ import pdb
 
 
 class optimal_traffic_scheduler:
-    def __init__(self, setup_dict, record_values=True):
+    def __init__(self, setup_dict, name='ots', record_values=True):
+        self.obj_name = name
         self.v_max = setup_dict['v_max']
         self.s_max = setup_dict['s_max']
         self.dt = setup_dict['dt']

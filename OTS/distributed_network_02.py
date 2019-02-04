@@ -5,7 +5,7 @@ import pdb
 
 
 class client_node:
-    def __init__(self, N_horizon, source_fun=None, target_fun=None):
+    def __init__(self, N_horizon, name='client_node', source_fun=None, target_fun=None):
         """
         Mimics the behavior of a server node. Can be both source or target of a connection.
         Inputs:
@@ -14,6 +14,7 @@ class client_node:
         - target_fun: [Optional, when used as source node] function that returns a sequence of bandwidth_load and memory_load, when evaluated with the current time_step.
         """
         self.predict = {}
+        self.obj_name = name
         self.source_fun = source_fun
         self.target_fun = target_fun
 
@@ -77,10 +78,10 @@ class distributed_network:
             nodes['node'].extend(circuit_i['route'])
         con_pd = pd.DataFrame(connections)
         nodes_pd = pd.DataFrame(nodes).drop_duplicates().reset_index().drop('index', axis=1)
-        # Identify duplicate connections (same source and target) and add which circuit is active.
-        # for i, dupl_con in con_pd[con_pd.duplicated(subset=['source', 'target'])].reset_index().iterrows():
-        #     con_pd[(con_pd.source == dupl_con.source) & (con_pd.target == dupl_con.target)].circuit.values[0].extend(dupl_con['circuit'])
-        # con_pd = con_pd.drop_duplicates(subset=['source', 'target'])
+        # Add name to each node:
+        nodes_pd['name'] = nodes_pd['node'].apply(lambda obj: obj.obj_name)
+        con_pd['source_name'] = con_pd['source'].apply(lambda obj: obj.obj_name)
+        con_pd['target_name'] = con_pd['target'].apply(lambda obj: obj.obj_name)
         return con_pd, nodes_pd
 
     def analyze_connections(self):
@@ -140,6 +141,7 @@ class distributed_network:
                 node_k['node'].setup(n_in=node_k['n_in'], n_out=node_k['n_out'])
 
 
+# Same configuration for all nodes:
 setup_dict = {}
 setup_dict['v_max'] = 20  # mb/s
 setup_dict['s_max'] = 30  # mb
@@ -147,17 +149,17 @@ setup_dict['dt'] = 1  # s
 setup_dict['N_steps'] = 20
 setup_dict['v_delta_penalty'] = 1
 
-ots_1 = optimal_traffic_scheduler(setup_dict)
-ots_2 = optimal_traffic_scheduler(setup_dict)
-ots_3 = optimal_traffic_scheduler(setup_dict)
-ots_4 = optimal_traffic_scheduler(setup_dict)
+ots_1 = optimal_traffic_scheduler(setup_dict, name='ots_1')
+ots_2 = optimal_traffic_scheduler(setup_dict, name='ots_2')
+ots_3 = optimal_traffic_scheduler(setup_dict, name='ots_3')
+ots_4 = optimal_traffic_scheduler(setup_dict, name='ots_4')
 # Input -> ots_1 -> out_2 -> out_3 -> Output
-input_node_1 = client_node()
-client_node_2 = client_node()
-input_node_3 = input_node()
-output_node_1 = client_node()
-client_node_2 = client_node()
-output_node_3 = output_node()
+input_node_1 = client_node(setup_dict['N_steps'], name='input_node_1')
+input_node_2 = client_node(setup_dict['N_steps'], name='input_node_2')
+input_node_3 = client_node(setup_dict['N_steps'], name='input_node_3')
+output_node_1 = client_node(setup_dict['N_steps'], name='output_node_1')
+output_node_2 = client_node(setup_dict['N_steps'], name='output_node_2')
+output_node_3 = client_node(setup_dict['N_steps'], name='output_node_3')
 
 circuits = [
     {'route': [input_node_1, ots_1, ots_2, ots_3, ots_4, output_node_1]},
