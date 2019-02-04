@@ -22,7 +22,7 @@ class client_node:
         if not self.source_fun:
             raise Exception('source_fun was not defined. Can not get input for client node')
         else:
-            self.predict['v_out'] = self.source_fun(time_step)
+            self.predict['v_out_circuit'] = self.source_fun(time_step)
 
     def get_output(self, time_step):
         if not self.target_fun:
@@ -35,11 +35,17 @@ class distributed_network:
     def __init__(self, circuits):
         self.connections, self.nodes = self.circ_2_network(circuits)
         self.analyze_connections()
+        self.time_step = 0
 
     def simulate(self):
         # In every simulation:
         # a) Determine associated properties for every connection that are determined by the source and target:
         for i, connection_i in self.connections.iterrows():
+            # If client node, get input/output from function call:
+            if type(connection_i['source']) is client_node:
+                connection_i['source'].get_input(self.time_step)
+            if type(connection_i['target']) is client_node:
+                connection_i['target'].get_output(self.time_step)
             # Package stream is depending on the source. Create [N_timesteps x n_outputs x 1] array (with np.stack())
             # and access the element that is stored in 'output_ind' for each connection.
             connection_i['v_circuit'] = np.stack(connection_i['source'].predict['v_out_circuit'])[:, [connection_i['output_ind']], :]
@@ -159,13 +165,22 @@ ots_1 = optimal_traffic_scheduler(setup_dict, name='ots_1')
 ots_2 = optimal_traffic_scheduler(setup_dict, name='ots_2')
 ots_3 = optimal_traffic_scheduler(setup_dict, name='ots_3')
 ots_4 = optimal_traffic_scheduler(setup_dict, name='ots_4')
-# Input -> ots_1 -> out_2 -> out_3 -> Output
-input_node_1 = client_node(setup_dict['N_steps'], name='input_node_1')
-input_node_2 = client_node(setup_dict['N_steps'], name='input_node_2')
-input_node_3 = client_node(setup_dict['N_steps'], name='input_node_3')
-output_node_1 = client_node(setup_dict['N_steps'], name='output_node_1')
-output_node_2 = client_node(setup_dict['N_steps'], name='output_node_2')
-output_node_3 = client_node(setup_dict['N_steps'], name='output_node_3')
+
+source_fun = []
+for i in range(4):
+    input_traj = np.convolve(5*np.random.rand(500), np.ones((20))/(20), mode='same').reshape(-1, 1)
+    source_fun.append(lambda k: [input_traj[[k+i]] for i in range(setup_dict['N_steps'])])
+
+
+def target_fun(k): return (setup_dict['N_steps']*[np.array([[0]])], setup_dict['N_steps']*[np.array([[0]])])
+
+
+input_node_1 = client_node(setup_dict['N_steps'], name='input_node_1', source_fun=source_fun[0])
+input_node_2 = client_node(setup_dict['N_steps'], name='input_node_2', source_fun=source_fun[1])
+input_node_3 = client_node(setup_dict['N_steps'], name='input_node_3', source_fun=source_fun[2])
+output_node_1 = client_node(setup_dict['N_steps'], name='output_node_1', target_fun=target_fun)
+output_node_2 = client_node(setup_dict['N_steps'], name='output_node_2', target_fun=target_fun)
+output_node_3 = client_node(setup_dict['N_steps'], name='output_node_3', target_fun=target_fun)
 
 circuits = [
     {'route': [input_node_1, ots_1, ots_2, ots_3, ots_4, output_node_1]},
@@ -175,6 +190,8 @@ circuits = [
 
 
 dn = distributed_network(circuits)
+
+dn.simulate()
 
 
 # %matplotlib qt
@@ -186,17 +203,17 @@ dn = distributed_network(circuits)
 """
 Experiment
 """
-node = dn.nodes.loc[1]
-v_out_buffer = node.node.predict['v_out_buffer']
-s_circuit = node.node.predict['s_circuit']
-s_buffer = node.node.predict['s_buffer']
-output_partition = node.output_partition
-v_out_circuit = s_circuit*(output_partition.T@(v_out_buffer/np.maximum(s_buffer, 1e-6)))
-
-
-node.n_out_buffer
-node.output_partition.shape
-s_circuit
+# node = dn.nodes.loc[1]
+# v_out_buffer = node.node.predict['v_out_buffer']
+# s_circuit = node.node.predict['s_circuit']
+# s_buffer = node.node.predict['s_buffer']
+# output_partition = node.output_partition
+# v_out_circuit = s_circuit*(output_partition.T@(v_out_buffer/np.maximum(s_buffer, 1e-6)))
+#
+#
+# node.n_out_buffer
+# node.output_partition.shape
+# s_circuit
 """
 Experiment with IO
 """
