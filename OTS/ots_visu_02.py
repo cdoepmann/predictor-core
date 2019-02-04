@@ -101,7 +101,7 @@ class ots_gt_plot:
     Graph-tool animation for the distributed network with optimal_traffic_scheduler.
     """
 
-    def __init__(self, dn, connections):
+    def __init__(self, dn):
         # Base line settings:
         self.settings = {}
         self.settings['min_vert_size'] = 20
@@ -118,7 +118,7 @@ class ots_gt_plot:
         g = gt.Graph()
         self.g = g
         # Convert connections to edges and nodes:
-        edge_list, node_list = get_edges_nodes(connections)
+        edge_list, node_list = dn.connections, dn.nodes
 
         # Add a vertex to the graph for every node and save it with the respective node object:
         node_list['vert'] = None
@@ -224,43 +224,3 @@ class ots_gt_plot:
                 v = edge_i['source'].record['v_out'][-1][edge_i['node_ind']]
             self.edge_prop['pen_width'][edge_i['edge']] = v
             self.edge_prop['text'][edge_i['edge']] = '{:.2f}'.format(float(v))
-
-
-def get_edges_nodes(connections):
-    """
-    Helper function for ots_gt_plot.
-
-    Input: Connections must be of the format:
-    connections = [
-        {'source': [input], 'node': ots_1, 'target': [ots_2, ots_3]},
-        ...
-        }
-    where each element of the list is a dict with the keywords 'source', 'node' and 'target'.
-    'source' and 'target' must be lists of input, output or ots objects. 'node' must be an 'ots' object.
-    Returns:
-    - pandas.DataFrame with columns 'source' and 'target'. That define edges of a network.
-    There are no duplicate edges.
-    - pandas.DataFrame with columns 'nodes'. That defines the nodes of a network
-    """
-    # Initialize empty list. Each list item will contain a dict with 'source' and 'target'.
-    # Note that each element in the "connections" list contains exactly one node but may contain multiple sources and targets.
-    edges = []
-    nodes = {'node': []}
-    for connection_i in connections:
-        nodes['node'].append(connection_i['node'])
-        for k, source_k in enumerate(connection_i['source']):
-            con_obj = 'ots' if type(source_k) == optimal_traffic_scheduler else 'input_node'
-            edges.append({'source': source_k, 'target': connection_i['node'], 'con_type': 0, 'node_ind': k, 'con_obj': con_obj})
-            nodes['node'].append(source_k)
-        for k, target_k in enumerate(connection_i['target']):
-            con_obj = 'ots' if type(target_k) == optimal_traffic_scheduler else 'output_node'
-            edges.append({'source': connection_i['node'], 'target': target_k, 'con_type': 1, 'node_ind': k, 'con_obj': con_obj})
-            nodes['node'].append(target_k)
-    edges_df = pd.DataFrame(edges)
-    nodes_df = pd.DataFrame(nodes)
-
-    # Drop the duplicates, reset the index and delete the column (axis=1) that contains the old indices.
-    edges_df_rmv_duplicate = edges_df.drop_duplicates(subset=['source', 'target']).reset_index().drop('index', axis=1)
-    nodes_df_rmv_duplicate = nodes_df.drop_duplicates().reset_index().drop('index', axis=1)
-
-    return edges_df_rmv_duplicate, nodes_df_rmv_duplicate
