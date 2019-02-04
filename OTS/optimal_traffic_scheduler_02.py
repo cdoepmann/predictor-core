@@ -14,6 +14,7 @@ class optimal_traffic_scheduler:
         self.record_values = record_values
         self.time = np.array([[0]])  # 1,1 array for consistency.
 
+        # Call setup, if n_in and n_out are part of the setup_dict.
         if 'n_in' and 'n_out' in setup_dict.keys():
             self.n_in = setup_dict['n_in']
             self.n_out = setup_dict['n_out']
@@ -36,21 +37,30 @@ class optimal_traffic_scheduler:
         self.create_optim()
 
     def initialize_prediction(self):
-        v_out_traj = [np.zeros((self.n_out, 1))]*self.N_steps
-        s_traj = [np.zeros((self.n_out, 1))]*self.N_steps
-        bandwidth_traj = [np.zeros((1, 1))]*self.N_steps
-        memory_traj = [np.zeros((1, 1))]*self.N_steps
+        # Initial conditions: all zeros.
+        v_out_buffer = [np.zeros((self.n_out, 1))]*self.N_steps
+        s_buffer = [np.zeros((self.n_out, 1))]*self.N_steps
+        bandwidth_load = [np.zeros((1, 1))]*self.N_steps
+        memory_load = [np.zeros((1, 1))]*self.N_steps
 
         self.predict = {}
-        self.predict['v_out'] = v_out_traj
-        self.predict['s'] = s_traj
-        self.predict['bandwidth_load'] = bandwidth_traj
-        self.predict['memory_load'] = memory_traj
+        self.predict['v_out_buffer'] = v_out_buffer
+        self.predict['s_buffer'] = s_buffer
+        self.predict['bandwidth_load'] = bandwidth_load
+        self.predict['memory_load'] = memory_load
 
     def initialize_record(self):
         # TODO : Save initial condition (especially for s)
-        self.record = {'time': [], 'v_in': [], 'v_out': [], 'v_in_buffer': [], 'v_out_buffer': [],
-                       's_circuit': [], 's_buffer': [], 'c': [], 'bandwidth_load': [], 'memory_load': [],
+        # NOTE: We are distinguishing between 'circuit' and 'buffer' for the memory, the input and the output.
+        # Why? Each connected server node may carry multiple circuits. We keep track of them individually, to forward relevant predictions to
+        # downstream nodes. This allows these nodes to predict where future packages will be directed. However, it is neiter feasible nor necessary
+        # to regard circuits individually within a node. First of all, circuits do not persists, while connections do and second of all the number of circuits
+        # is by orders of magnitude greater than the number of connections. The first reason would require to reformulate the optimization problem repeatedly,
+        # while the second would increase the computation time. Lastly, it is not in our hand to influence the composition (with regards to circuits) of the output buffers
+        # for the node. We can only manipulate the number of packages sent from each individual buffer and depending on the composition this will result in different amounts
+        # of packages for each circuit.
+        self.record = {'time': [], 'v_in_circuit': [], 'v_out_circuit': [], 'v_in_buffer': [], 'v_out_buffer': [],
+                       's_circuit': [], 's_buffer': [], 'bandwidth_load': [], 'memory_load': [],
                        'bandwidth_load_target': [], 'memory_load_target': []}
 
     def problem_formulation(self):
@@ -92,12 +102,12 @@ class optimal_traffic_scheduler:
         self.mpc_problem = mpc_problem
 
     def create_optim(self):
-        # Initialize trajectory lists:
-        s_k = []  # [s_1, s_2, ..., s_N]
+        # Initialize trajectory lists (each list item, one time-step):
+        s_buffer_k = []  # [s_1, s_2, ..., s_N]
         v_buffer_in_k = []  # [v_in_0, v_in_1 , ... , v_in_N-1]
         v_buffer_out_k = []
-        v_buffer_out_k_prev = []
-        v_buffer_out_k_delta = []
+        v_buffer_out_prev_k = []
+        v_buffer_out_delta_k = []
         cons_k = []
         bandwidth_load_k = []
         memory_load_k = []
@@ -105,59 +115,62 @@ class optimal_traffic_scheduler:
         obj_k = 0
 
         # Initial condition:
-        s0 = SX.sym('s0', self.n_out, 1)
+        s_buffer_0 = SX.sym('s_buffer_0', self.n_out, 1)
 
+        # Recursively evaluate system equation and add stage cost and stage constraints:
         for k in range(self.N_steps):
 
             # Incoming packet stream
-            v_buffer_in_k.append(SX.sym('v_in', self.n_out, 1))
+            v_buffer_in_k.append(SX.sym('v_buffer_in', self.n_out, 1))
             # Outgoing packet stream
-            v_buffer_out_k.append(SX.sym('v_out', self.n_out, 1))
+            v_buffer_out_k.append(SX.sym('v_buffer_out', self.n_out, 1))
 
+            # For all but the last step: Penalize changes of v_buffer_out in comparison to the previous solution:
             if k < self.N_steps-1:
-                v_buffer_out_k_prev.append(SX.sym('v_out_prev', self.n_out, 1))
-                v_buffer_out_k_delta = self.v_delta_penalty*sum1((v_buffer_out_k[k]-v_buffer_out_k_prev[k])**2)/self.v_max
+                v_buffer_out_prev_k.append(SX.sym('v_buffer_out_prev', self.n_out, 1))
+                v_buffer_out_delta_k = self.v_delta_penalty*sum1((v_buffer_out_k[k]-v_buffer_out_prev_k[k])**2)/self.v_max
             else:
-                v_buffer_out_k_delta = self.v_delta_penalty*sum1((v_buffer_out_k[k]-v_buffer_out_k[k-1])**2)/self.v_max
+                # For the last step: Penalize change of v_buffer_out in comparison to the second to last step.
+                v_buffer_out_delta_k = self.v_delta_penalty*sum1((v_buffer_out_k[k]-v_buffer_out_k[k-1])**2)/self.v_max
 
-            obj_k += v_buffer_out_k_delta
+            obj_k += v_buffer_out_delta_k
 
             # bandwidth / memory info outgoing servers
             bandwidth_load_k.append(SX.sym('bandwidth_load', self.n_out, 1))
             memory_load_k.append(SX.sym('memory_load', self.n_out, 1))
 
-            # For the first step use s0
+            # For the first step use s_buffer_0
             if k == 0:
-                s_k.append(self.mpc_problem['model'](v_buffer_in_k[k], v_buffer_out_k[k], s0))
+                s_buffer_k.append(self.mpc_problem['model'](v_buffer_in_k[k], v_buffer_out_k[k], s_buffer_0))
             else:  # In suceeding steps use the previous s
-                s_k.append(self.mpc_problem['model'](v_buffer_in_k[k], v_buffer_out_k[k], s_k[k-1]))
+                s_buffer_k.append(self.mpc_problem['model'](v_buffer_in_k[k], v_buffer_out_k[k], s_buffer_k[k-1]))
 
             # Add the "stage cost" to the objective
             obj_k += self.mpc_problem['obj'](v_buffer_in_k[k], v_buffer_out_k[k],
-                                             s_k[k], bandwidth_load_k[k], memory_load_k[k])
+                                             s_buffer_k[k], bandwidth_load_k[k], memory_load_k[k])
             # Constraints for the current step
             cons_k.append(self.mpc_problem['cons'](
-                v_buffer_in_k[k], v_buffer_out_k[k], s_k[k], bandwidth_load_k[k], memory_load_k[k]))
+                v_buffer_in_k[k], v_buffer_out_k[k], s_buffer_k[k], bandwidth_load_k[k], memory_load_k[k]))
 
-        optim_dict = {'x': vertcat(*v_buffer_out_k),  # Optimization variable
-                      'f': obj_k,  # objective
-                      'g': vertcat(*cons_k),  # constraints (Note: cons<=0)
-                      'p': vertcat(s0, *v_buffer_in_k, *v_buffer_out_k_prev, *bandwidth_load_k, *memory_load_k)}  # parameters
+        optim_dict = {'x': vertcat(*v_buffer_out_k),    # Optimization variable
+                      'f': obj_k,                       # objective
+                      'g': vertcat(*cons_k),            # constraints (Note: cons<=0)
+                      'p': vertcat(s_buffer_0, *v_buffer_in_k, *v_buffer_out_prev_k, *bandwidth_load_k, *memory_load_k)}  # parameters
 
         # Create casadi optimization object:
         self.optim = nlpsol('optim', 'ipopt', optim_dict)
         # Create function to calculate buffer memory from parameter and optimization variable trajectories
-        self.s_traj = Function('s_traj', v_s_k+v_buffer_out_k+[s0]+c_k, s_k)
+        self.s_buffer_fun = Function('s_buffer_fun', v_buffer_in_k+v_buffer_out_k+[s_buffer_0], s_buffer_k)
 
-    def solve(self, s0, v_in_s_traj, bandwidth_target_traj, memory_target_traj):
+    def solve(self, s0, v_in_buffer, bandwidth_load_target, memory_load_target):
         """
         Solves the optimal control problem defined in optimal_traffic_scheduler.problem_formulation().
         Inputs:
-        - s0            : current memory for each buffer (must be n_out x 1 vector)
+        - s_buffer_0            : initial memory for each buffer (must be n_out x 1 vector)
         Predicted trajectories (as lists with N_horizon elments):
-        - v_in_s_traj           : Incoming package stream for each buffer (n_out x 1 vector)
-        - bandwidth_target_traj : Bandwidth load of target server(s) (n_out x 1 vector)
-        - memory_target_traj    : Memory load of target server(s) (n_out x 1 vector)
+        - v_in_buffer           : Incoming package stream for each buffer (n_out x 1 vector)
+        - bandwidth_load_target : Bandwidth load of target server(s) (n_out x 1 vector)
+        - memory_load_target    : Memory load of target server(s) (n_out x 1 vector)
 
         Populates the "predict" and "record" dictonaries of the class.
         - Predict: Constantly overwritten variables that save the current optimized state and control trajectories of the node
@@ -165,49 +178,50 @@ class optimal_traffic_scheduler:
 
         Returns the predict dictionary. Note that the predict dictionary contains some of the inputs trajectories as well as the
         calculated optimal trajectories.
+
+        "Solve" also advances the time of the node by one time_step.
         """
 
         # Get previous solution:
-        v_out_prev_traj = self.predict['v_out']
+        v_buffer_out_prev = self.predict['v_out_buffer']
         # Create concatented parameter vector:
-        param = np.concatenate((s0, *v_in_s_traj, *v_out_prev_traj[1:], *bandwidth_target_traj, *memory_target_traj), axis=0)
+        param = np.concatenate((s_buffer_0, *v_in_buffer, *v_buffer_out_prev[1:], *bandwidth_load_target, *memory_load_target), axis=0)
         # Get initial condition:
-        x0 = np.concatenate(v_out_prev_traj, axis=0)
+        x0 = np.concatenate(v_buffer_out_prev, axis=0)
         # Solve optimization problem for given conditions:
         sol = self.optim(ubg=0, p=param, x0=x0)  # Note: constraints were formulated, such that cons<=0.
 
         # Retrieve trajectory of outgoing package streams:
         x = sol['x'].full().reshape(self.N_steps, -1)
-        v_out_traj = [x[[k]].T for k in range(self.N_steps)]
+        v_out_buffer = [x[[k]].T for k in range(self.N_steps)]
 
         # Calculate trajectory of buffer memory usage:
-        s_traj = np.concatenate(self.s_traj(*v_in_s_traj, *v_out_traj, s0, *c_traj_reshape), axis=1).T
-        s_traj = [s_traj[[k]].T for k in range(self.N_steps)]
+        s_buffer = np.concatenate(self.s_buffer_fun(*v_in_buffer, *v_out_buffer, s_buffer_0, *c_traj_reshape), axis=1).T
+        s_buffer = [s_buffer[[k]].T for k in range(self.N_steps)]
 
         # Calculate trajectory for bandwidth and memory:
-        bandwidth_node_traj = [(np.sum(v_out_k, keepdims=True)+np.sum(v_in_k, keepdims=True))/self.v_max for v_out_k,
-                               v_in_k in zip(v_out_traj, v_in_s_traj)]
+        bandwidth_load_node = [(np.sum(v_out_k, keepdims=True)+np.sum(v_in_k, keepdims=True))/self.v_max for v_out_k,
+                               v_in_k in zip(v_out_buffer, v_in_buffer)]
 
-        memory_node_traj = [np.sum(s_k, keepdims=True)/self.s_max for s_k in s_traj]
+        memory_load_node = [np.sum(s_k, keepdims=True)/self.s_max for s_k in s_buffer]
 
-        self.predict['v_in_buffer'] = v_in_s_traj
-        self.predict['v_out_buffer'] = v_out_traj
-        self.predict['s_buffer'] = s_traj
-        self.predict['bandwidth_load'] = bandwidth_node_traj
-        self.predict['memory_load'] = memory_node_traj
-        self.predict['bandwidth_load_target'] = np.copy(bandwidth_target_traj)
-        self.predict['memory_load_target'] = np.copy(memory_target_traj)
+        self.predict['v_in_buffer'] = v_in_buffer
+        self.predict['v_out_buffer'] = v_out_buffer
+        self.predict['s_buffer'] = s_buffer
+        self.predict['bandwidth_load'] = bandwidth_load_node
+        self.predict['memory_load'] = memory_load_node
+        self.predict['bandwidth_load_target'] = np.copy(bandwidth_load_target)
+        self.predict['memory_load_target'] = np.copy(memory_load_target)
 
         self.time += self.dt
 
         if self.record_values:
             self.record['time'].append(np.copy(self.time))
-            self.record['v_in_buffer'].append(v_in_s_traj[0])
-            self.record['v_out_buffer'].append(v_out_traj[0])
-            self.record['c'].append(v_out_traj[0])
-            self.record['s_buffer'].append(s_traj[0])
-            self.record['bandwidth_load'].append(bandwidth_node_traj[0])
-            self.record['memory_load'].append(memory_node_traj[0])
-            self.record['bandwidth_load_target'].append(bandwidth_target_traj[0])
-            self.record['memory_load_target'].append(memory_target_traj[0])
+            self.record['v_in_buffer'].append(v_in_buffer[0])
+            self.record['v_out_buffer'].append(v_out_buffer[0])
+            self.record['s_buffer'].append(s_buffer[0])
+            self.record['bandwidth_load'].append(bandwidth_load_node[0])
+            self.record['memory_load'].append(memory_load_node[0])
+            self.record['bandwidth_load_target'].append(bandwidth_load_target[0])
+            self.record['memory_load_target'].append(memory_load_target[0])
         return self.predict
