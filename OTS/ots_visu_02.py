@@ -2,9 +2,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 from casadi import *
+import pdb
+from optimal_traffic_scheduler_02 import optimal_traffic_scheduler
+from distributed_network_02 import client_node
 
-from optimal_traffic_scheduler import optimal_traffic_scheduler
-from distributed_network import input_node, output_node
 try:
     import graph_tool.all as gt
     import graph_tool
@@ -149,6 +150,7 @@ class ots_gt_plot:
         # Create property maps for the edges:
         edge_prop = {}
         edge_prop['pen_width'] = g.new_edge_property('double')
+        edge_prop['color'] = g.new_edge_property('vector<double>')
         edge_prop['text'] = g.new_edge_property('string')
 
         self.edge_prop = edge_prop
@@ -158,13 +160,13 @@ class ots_gt_plot:
         """
         Display current state of the network without animation.
         """
-        # self.set_properties()
-        # vprops=self.vert_prop, eprops=self.edge_prop
-        gt.graph_draw(self.g, pos=self.pos, output_node=(800, 400))
+        self.set_properties()
+        vprops = self.vert_prop
+        eprops = self.edge_prop
+        gt.graph_draw(self.g, pos=self.pos, eprops=eprops, vprops=vprops, output_node=(1000, 500))
 
-    def anim_gt(self, c_list):
+    def anim_gt(self):
         self.win = gt.GraphWindow(self.g, self.pos, geometry=(1000, 500), vprops=self.vert_prop, eprops=self.edge_prop)
-        self.c_list = c_list
 
         # Bind the function above as an 'idle' callback.
         cid = GObject.idle_add(self.anim_update)
@@ -178,7 +180,7 @@ class ots_gt_plot:
         Update function that is called by the animation. Simulates the distributed network, sets the properties of
         the visualization depending on the current state and plots the visualization.
         """
-        self.dn.simulate(c_list=self.c_list)
+        self.dn.simulate()
         self.set_properties()
 
         self.win.graph.regenerate_surface()
@@ -194,7 +196,7 @@ class ots_gt_plot:
                 # Get information from node and calculate composition of buffer
                 bandwidth_load = node_i['node'].record['bandwidth_load'][-1]
                 memory_load = node_i['node'].record['memory_load'][-1]
-                s = node_i['node'].record['s'][-1]
+                s = node_i['node'].record['s_circuit'][-1]
                 if not np.sum(s) == 0:
                     pie_fractions = s / np.sum(s)
                 else:
@@ -209,19 +211,15 @@ class ots_gt_plot:
                 self.vert_prop['halo_size'][node_i['vert']] = 1 + 20*bandwidth_load/self.vert_prop['size'][node_i['vert']]
                 self.vert_prop['shape'][node_i['vert']] = 'pie'
                 self.vert_prop['pie_fractions'][node_i['vert']] = pie_fractions.ravel().tolist()
-            elif type(node_i['node']) == input_node:
+            elif type(node_i['node']) == client_node:
                 self.vert_prop['size'][node_i['vert']] = 20
                 self.vert_prop['shape'][node_i['vert']] = 'square'
                 self.vert_prop['fill_color'][node_i['vert']] = [0.15, 0.73, 0.05, 0.8]
-            elif type(node_i['node']) == output_node:
-                self.vert_prop['size'][node_i['vert']] = 20
-                self.vert_prop['shape'][node_i['vert']] = 'square'
-                self.vert_prop['fill_color'][node_i['vert']] = [1.0, 0.16, 0.27, 0.98]
+
         # Assign properties for each edge:
         for i, edge_i in self.edge_list.iterrows():
-            if edge_i['con_type'] == 0:  # source to node connection
-                v = edge_i['target'].record['v_in'][-1][edge_i['node_ind']]
-            elif edge_i['con_type'] == 1:  # node to target connection
-                v = edge_i['source'].record['v_out'][-1][edge_i['node_ind']]
+            v = edge_i['v_circuit'][0]
+            circuit = edge_i['circuit']
+            self.edge_prop['color'][edge_i['edge']] = self.colors[circuit]
             self.edge_prop['pen_width'][edge_i['edge']] = v
             self.edge_prop['text'][edge_i['edge']] = '{:.2f}'.format(float(v))

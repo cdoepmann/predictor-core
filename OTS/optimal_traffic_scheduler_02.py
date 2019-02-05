@@ -43,6 +43,7 @@ class optimal_traffic_scheduler:
         # Initial conditions: all zeros.
         v_out_buffer = [np.zeros((self.n_out_buffer, 1))]*self.N_steps
         v_out_circuit = [np.zeros((self.n_out_circuit, 1))]*self.N_steps
+        v_in_circuit = [np.zeros((self.n_in, 1))]*self.N_steps
         s_buffer = [np.zeros((self.n_out_buffer, 1))]*self.N_steps
         s_circuit = [np.zeros((self.n_out_circuit, 1))]*self.N_steps
         bandwidth_load = [np.zeros((1, 1))]*self.N_steps
@@ -51,6 +52,7 @@ class optimal_traffic_scheduler:
         self.predict = {}
         self.predict['v_out_buffer'] = v_out_buffer
         self.predict['v_out_circuit'] = v_out_circuit
+        self.predict['v_in_circuit'] = v_in_circuit
         self.predict['s_buffer'] = s_buffer
         self.predict['s_circuit'] = s_circuit
         self.predict['bandwidth_load'] = bandwidth_load
@@ -69,6 +71,8 @@ class optimal_traffic_scheduler:
         self.record = {'time': [], 'v_in_circuit': [], 'v_out_circuit': [], 'v_in_buffer': [], 'v_out_buffer': [],
                        's_circuit': [], 's_buffer': [], 'bandwidth_load': [], 'memory_load': [],
                        'bandwidth_load_target': [], 'memory_load_target': []}
+
+        self.record['s_circuit'] = self.predict['s_circuit'][0]
 
     def problem_formulation(self):
         # Buffer memory
@@ -169,7 +173,7 @@ class optimal_traffic_scheduler:
         # Create function to calculate buffer memory from parameter and optimization variable trajectories
         self.s_buffer_fun = Function('s_buffer_fun', v_buffer_in_k+v_buffer_out_k+[s_buffer_0], s_buffer_k)
 
-    def solve(self, s0, v_in_buffer, bandwidth_load_target, memory_load_target):
+    def solve(self, s_buffer_0, v_in_buffer, bandwidth_load_target, memory_load_target):
         """
         Solves the optimal control problem defined in optimal_traffic_scheduler.problem_formulation().
         Inputs:
@@ -188,7 +192,6 @@ class optimal_traffic_scheduler:
 
         "Solve" also advances the time of the node by one time_step.
         """
-
         # Get previous solution:
         v_buffer_out_prev = self.predict['v_out_buffer']
         # Create concatented parameter vector:
@@ -203,7 +206,7 @@ class optimal_traffic_scheduler:
         v_out_buffer = [x[[k]].T for k in range(self.N_steps)]
 
         # Calculate trajectory of buffer memory usage:
-        s_buffer = np.concatenate(self.s_buffer_fun(*v_in_buffer, *v_out_buffer, s_buffer_0, *c_traj_reshape), axis=1).T
+        s_buffer = np.concatenate(self.s_buffer_fun(*v_in_buffer, *v_out_buffer, s_buffer_0), axis=1).T
         s_buffer = [s_buffer[[k]].T for k in range(self.N_steps)]
 
         # Calculate trajectory for bandwidth and memory:
@@ -236,14 +239,18 @@ class optimal_traffic_scheduler:
     def simulate_circuits(self, output_partition):
         v_in_circuit = self.predict['v_in_circuit']
         v_out_buffer = self.predict['v_out_buffer']
-        s_buffer = self.predict['s_buffer']
-
         s_circuit_0 = self.predict['s_circuit'][0]
         v_out_circuit = []
-        s_circuit = [s_circuit_0]
+        s_circuit = []
         for k in range(self.N_steps):
-            v_out_circuit.append(s_circuit[k]*(output_partition.T@(v_out_buffer[k]/np.maximum(s_buffer[k], 1e-12))))
-            s_circuit.append(s_circuit[k]+v_in_circuit[k]-v_out_circuit[k])
+            if k == 0:
+                s_circuit_k = s_circuit_0
+            else:
+                s_circuit_k = s_circuit[k-1]
+            v_out_circuit_k = np.maximum(s_circuit_k*(output_partition.T@(v_out_buffer[k]/np.maximum(output_partition@s_circuit_k, 1e-12))), 0)
+            v_out_circuit.append(v_out_circuit_k)
+            s_circuit_k_new = np.maximum(s_circuit_k+v_in_circuit[k]-v_out_circuit[k], 0)
+            s_circuit.append(s_circuit_k_new)
 
         self.predict['v_out_circuit'] = v_out_circuit
         self.predict['s_circuit'] = s_circuit

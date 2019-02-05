@@ -40,19 +40,22 @@ class distributed_network:
     def simulate(self):
         # In every simulation:
         # a) Determine associated properties for every connection that are determined by the source and target:
-        for i, connection_i in self.connections.iterrows():
-            # If client node, get input/output from function call:
-            if type(connection_i['source']) is client_node:
-                connection_i['source'].get_input(self.time_step)
-            if type(connection_i['target']) is client_node:
-                connection_i['target'].get_output(self.time_step)
+
+        # Apply this function to each row of the connections DataFrame, such that:
+        # connections['v_circuit'] = connections.apply(v_circuit_fun, axis=1)
+        def v_circuit_fun(row):
+            if type(row['source']) is client_node:
+                row['source'].get_input(self.time_step)
+            if type(row['target']) is client_node:
+                row['target'].get_output(self.time_step)
             # Package stream is depending on the source. Create [N_timesteps x n_outputs x 1] array (with np.stack())
             # and access the element that is stored in 'output_ind' for each connection.
-            connection_i['v_circuit'] = np.stack(connection_i['source'].predict['v_out_circuit'])[:, [connection_i['output_ind']], :]
-            # Bandwidth and memory load are depending on the target. Create [N_timesteps x 1 x1] array.
-            connection_i['bandwidth_load'] = np.stack(connection_i['target'].predict['bandwidth_load'])
-            connection_i['memory_load'] = np.stack(connection_i['target'].predict['bandwidth_load'])
+            return np.stack(row['source'].predict['v_out_circuit'])[:, [row['output_ind']], :]
 
+        self.connections['v_circuit'] = self.connections.apply(v_circuit_fun, axis=1)
+        # Bandwidth and memory load are depending on the target. Create [N_timesteps x 1 x1] array.
+        self.connections['bandwidth_load'] = self.connections.apply(lambda row: np.stack(row['target'].predict['bandwidth_load']), axis=1)
+        self.connections['memory_load'] = self.connections.apply(lambda row: np.stack(row['target'].predict['memory_load']), axis=1)
         # b) Iterate over all nodes, query respective I/O data from connections and simulate node
         for k, node_k in self.nodes.iterrows():
             # Simulate only if the node is an optimal_traffic_scheduler.
@@ -68,12 +71,21 @@ class distributed_network:
 
                 # np.matmul: If either argument is N-D, N > 2, it is treated as a stack of matrices residing in the last two indexes and broadcast accordingly.
                 v_in_buffer = output_partition@v_in_circuit[:, io_mapping]
+
+                # bandwidth_load and memory_load is queried for each circuit (multiple circuits) may lead to the same node with the same load values.
+                # use the output_partition matrix to get the load information of the connected nodes. This effectively calculates the mean value of
+                # all connections that lead to the same node.
+                bandwidth_load = output_partition/np.sum(output_partition, axis=1, keepdims=True)@bandwidth_load
+                memory_load = output_partition/np.sum(output_partition, axis=1, keepdims=True)@memory_load
+
                 # Simulate Node with intial condition:
-                s0 = node_k.node.predict['s'][0]
+                s0 = node_k.node.predict['s_buffer'][0]
                 node_k.node.solve(s0, v_in_buffer, bandwidth_load, memory_load)
                 # Calculate and add circuit information to node:
-                node_k.node.predict['v_in_circuit'] = [v_in_circuit[[k]] for k in range(connection_i['node'].N_steps)]
-                node_k.node.simulate_circuits()
+                node_k.node.predict['v_in_circuit'] = [v_in_circuit[k] for k in range(node_k['node'].N_steps)]
+                node_k.node.simulate_circuits(output_partition)
+
+        self.time_step += 1
 
     def circ_2_network(self, circuits):
         """
@@ -119,7 +131,8 @@ class distributed_network:
             node_k['n_out_circuit'] = sum(node_k['con_out'])
             # The output of each node is a vector with n_out elements. 'output_ind' marks which
             # of its elements refers to which connection:
-            self.connections.loc[node_k['con_out'], 'output_ind'] = np.arange(node_k['n_out_circuit'], dtype='int16').tolist()
+            if any(node_k['con_out']):
+                self.connections.loc[node_k['con_out'], 'output_ind'] = np.arange(node_k['n_out_circuit'], dtype='int16').tolist()
 
             # Boolean array that indicates in which connections node_k is the target. This determines the
             # number of inputs.
@@ -153,53 +166,31 @@ class distributed_network:
                 node_k['node'].setup(n_in=node_k['n_in'], n_out_buffer=node_k['n_out_buffer'], n_out_circuit=node_k['n_out_circuit'])
 
 
-# Same configuration for all nodes:
-setup_dict = {}
-setup_dict['v_max'] = 20  # mb/s
-setup_dict['s_max'] = 30  # mb
-setup_dict['dt'] = 1  # s
-setup_dict['N_steps'] = 20
-setup_dict['v_delta_penalty'] = 1
-
-ots_1 = optimal_traffic_scheduler(setup_dict, name='ots_1')
-ots_2 = optimal_traffic_scheduler(setup_dict, name='ots_2')
-ots_3 = optimal_traffic_scheduler(setup_dict, name='ots_3')
-ots_4 = optimal_traffic_scheduler(setup_dict, name='ots_4')
-
-source_fun = []
-for i in range(4):
-    input_traj = np.convolve(5*np.random.rand(500), np.ones((20))/(20), mode='same').reshape(-1, 1)
-    source_fun.append(lambda k: [input_traj[[k+i]] for i in range(setup_dict['N_steps'])])
-
-
-def target_fun(k): return (setup_dict['N_steps']*[np.array([[0]])], setup_dict['N_steps']*[np.array([[0]])])
-
-
-input_node_1 = client_node(setup_dict['N_steps'], name='input_node_1', source_fun=source_fun[0])
-input_node_2 = client_node(setup_dict['N_steps'], name='input_node_2', source_fun=source_fun[1])
-input_node_3 = client_node(setup_dict['N_steps'], name='input_node_3', source_fun=source_fun[2])
-output_node_1 = client_node(setup_dict['N_steps'], name='output_node_1', target_fun=target_fun)
-output_node_2 = client_node(setup_dict['N_steps'], name='output_node_2', target_fun=target_fun)
-output_node_3 = client_node(setup_dict['N_steps'], name='output_node_3', target_fun=target_fun)
-
-circuits = [
-    {'route': [input_node_1, ots_1, ots_2, ots_3, ots_4, output_node_1]},
-    {'route': [input_node_2, ots_1, ots_3, ots_4, output_node_2]},
-    {'route': [input_node_3, ots_1, ots_2, ots_3, ots_4, output_node_3]},
-]
-
-
-dn = distributed_network(circuits)
-
-dn.simulate()
+# def fun(row): return np.stack(row['source'].predict['v_out_circuit'])[:, [row['output_ind']], :]
+#
+#
+# def fun(row):
+#     if type(row['source']) is client_node:
+#         row['source'].get_input(10)
+#     if type(row['target']) is client_node:
+#         row['target'].get_output(10)
+#     return np.stack(row['source'].predict['v_out_circuit'])[:, [row['output_ind']], :]
+#
+#
+# dn.connections['v_circuit'] = dn.connections.apply(fun, axis=1)
+#
+# dn.connections.loc[9, 'v_circuit'].shape
+#
+#
+# dn.connections.loc[0, 'source'].predict
+#
+# dn['source']
 
 
 # %matplotlib qt
 # from ots_visu_02 import ots_gt_plot
 # visu = ots_gt_plot(dn)
 # visu.show_gt()
-
-
 """
 Experiment
 """
