@@ -72,7 +72,8 @@ class optimal_traffic_scheduler:
                        's_circuit': [], 's_buffer': [], 'bandwidth_load': [], 'memory_load': [],
                        'bandwidth_load_target': [], 'memory_load_target': []}
 
-        self.record['s_circuit'] = self.predict['s_circuit'][0]
+        for predict_key in self.predict.keys():
+            self.record[predict_key].append(self.predict[predict_key][0])
 
     def problem_formulation(self):
         # Buffer memory
@@ -239,23 +240,29 @@ class optimal_traffic_scheduler:
     def simulate_circuits(self, output_partition):
         v_in_circuit = self.predict['v_in_circuit']
         v_out_buffer = self.predict['v_out_buffer']
-        s_circuit_0 = self.predict['s_circuit'][0]
+        s_buffer = self.predict['s_buffer']
+        s_buffer_0 = self.record['s_buffer'][-2]
+        s_circuit_0 = self.record['s_circuit'][-1]
         v_out_circuit = []
         s_circuit = []
         for k in range(self.N_steps):
             if k == 0:
                 s_circuit_k = s_circuit_0
+                s_buffer_k = s_buffer_0
             else:
                 s_circuit_k = s_circuit[k-1]
-            v_out_circuit_k = np.maximum(s_circuit_k*(output_partition.T@(v_out_buffer[k]/np.maximum(output_partition@s_circuit_k, 1e-12))), 0)
+                s_buffer_k = s_buffer[k-1]
+            v_out_circuit_k = v_in_circuit[k]-np.linalg.pinv(output_partition)@(s_buffer[k]-s_buffer_k)
             v_out_circuit.append(v_out_circuit_k)
-            s_circuit_k_new = np.maximum(s_circuit_k+v_in_circuit[k]-v_out_circuit[k], 0)
+            s_circuit_k_new = s_circuit_k+v_in_circuit[k]-v_out_circuit[k]
             s_circuit.append(s_circuit_k_new)
+
+        # if any(np.sum(np.concatenate(v_out_circuit, axis=1), axis=0)+np.sum(np.concatenate(v_in_circuit, axis=1), axis=0) > self.v_max):
+        #     pdb.set_trace()
 
         self.predict['v_out_circuit'] = v_out_circuit
         self.predict['s_circuit'] = s_circuit
-
         if self.record_values:
-            self.record['v_out_circuit'] = v_out_circuit[0]
-            self.record['v_in_circuit'] = v_in_circuit[0]
-            self.record['s_circuit'] = s_circuit[0]
+            self.record['v_out_circuit'].append(v_out_circuit[0])
+            self.record['v_in_circuit'].append(v_in_circuit[0])
+            self.record['s_circuit'].append(s_circuit[0])

@@ -1,4 +1,5 @@
 import numpy as np
+import matplotlib
 import matplotlib.pyplot as plt
 import pandas as pd
 from casadi import *
@@ -208,7 +209,7 @@ class ots_gt_plot:
                 self.vert_prop['fill_color'][node_i['vert']] = [0.15, 0.73, 0.05, 0.8]  # dummy value
                 self.vert_prop['halo'][node_i['vert']] = True
                 self.vert_prop['halo_color'][node_i['vert']] = [1.0, 0.16, 0.27, 0.5]
-                self.vert_prop['halo_size'][node_i['vert']] = 1 + 20*bandwidth_load/self.vert_prop['size'][node_i['vert']]
+                self.vert_prop['halo_size'][node_i['vert']] = 1 + 30*bandwidth_load/self.vert_prop['size'][node_i['vert']]
                 self.vert_prop['shape'][node_i['vert']] = 'pie'
                 self.vert_prop['pie_fractions'][node_i['vert']] = pie_fractions.ravel().tolist()
             elif type(node_i['node']) == client_node:
