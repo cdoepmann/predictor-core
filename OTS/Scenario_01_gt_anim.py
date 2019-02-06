@@ -1,8 +1,8 @@
 import numpy as np
 import pandas as pd
-from optimal_traffic_scheduler_02 import optimal_traffic_scheduler
-from distributed_network_02 import distributed_network, client_node
-from ots_visu_02 import ots_gt_plot
+from optimal_traffic_scheduler import optimal_traffic_scheduler
+from distributed_network import distributed_network, client_node
+from ots_visu import ots_gt_plot
 import pdb
 
 # Same configuration for all nodes:

@@ -4,8 +4,8 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from casadi import *
 import pdb
-from optimal_traffic_scheduler_02 import optimal_traffic_scheduler
-from distributed_network_02 import client_node
+from optimal_traffic_scheduler import optimal_traffic_scheduler
+from distributed_network import client_node
 
 try:
     import graph_tool.all as gt

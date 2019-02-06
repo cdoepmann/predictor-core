@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from optimal_traffic_scheduler_02 import optimal_traffic_scheduler
+from optimal_traffic_scheduler import optimal_traffic_scheduler
 import pdb
 
 
