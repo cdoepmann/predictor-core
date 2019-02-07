@@ -252,13 +252,17 @@ class optimal_traffic_scheduler:
             else:
                 s_circuit_k = s_circuit[k-1]
                 s_buffer_k = s_buffer[k-1]
-            v_out_circuit_k = v_in_circuit[k]-np.linalg.pinv(output_partition)@(s_buffer[k]-s_buffer_k)
-            v_out_circuit.append(v_out_circuit_k)
+
+            # s_circuit_k_tilde is the storage for each circuit at time k, that includes the package stream that entered the node at time k.
+            # This is important, because these packages are already allowed to leave the node again. To protect the following devision, it cannot be 0.
+            s_circuit_k_tilde = np.maximum(s_circuit_k + v_in_circuit[k], self.s_max*1e-6)
+            # Calculate the outgoing package stream for each circuit. Each element of v_out_buffer carries multiple circuits.
+            # We calculate the composition of v_out_buffer based on s_circuit_k_tilde and s_buffer_k=output_partition@s_circuit_k_tilde.
+            v_out_circuit_k = s_circuit_k_tilde*(output_partition.T@(v_out_buffer[k]/(output_partition@s_circuit_k_tilde)))
+            v_out_circuit.append(np.maximum(v_out_circuit_k, 0))
+            # With v_out_circuit we calculate the sequence of s_circuit.
             s_circuit_k_new = s_circuit_k+v_in_circuit[k]-v_out_circuit[k]
             s_circuit.append(s_circuit_k_new)
-
-        # if any(np.sum(np.concatenate(v_out_circuit, axis=1), axis=0)+np.sum(np.concatenate(v_in_circuit, axis=1), axis=0) > self.v_max):
-        #     pdb.set_trace()
 
         self.predict['v_out_circuit'] = v_out_circuit
         self.predict['s_circuit'] = s_circuit
