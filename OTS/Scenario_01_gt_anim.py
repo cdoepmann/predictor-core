@@ -17,12 +17,14 @@ ots_1 = optimal_traffic_scheduler(setup_dict, name='ots_1')
 ots_2 = optimal_traffic_scheduler(setup_dict, name='ots_2')
 ots_3 = optimal_traffic_scheduler(setup_dict, name='ots_3')
 ots_4 = optimal_traffic_scheduler(setup_dict, name='ots_4')
+ots_5 = optimal_traffic_scheduler(setup_dict, name='ots_5')
+
 
 source_fun = []
 
-data = np.convolve((6*np.random.rand(500, 3)).ravel(), np.ones(5)/5, mode='same').reshape(500, 3)
-a = 1*np.array([1, 3, 5])
-#data = a*np.ones((500, 3))
+data = np.convolve((6*np.random.rand(100, 3)).ravel(), np.ones(5)/5, mode='same').reshape(100, 3)
+# a = 1*np.array([1, 3, 5])
+# data = a*np.ones((500, 3))
 
 
 def inputs(k, i):
@@ -43,9 +45,10 @@ output_node_1 = client_node(setup_dict['N_steps'], name='output_node_1', target_
 output_node_2 = client_node(setup_dict['N_steps'], name='output_node_2', target_fun=target_fun)
 output_node_3 = client_node(setup_dict['N_steps'], name='output_node_3', target_fun=target_fun)
 output_node_4 = client_node(setup_dict['N_steps'], name='output_node_4', target_fun=target_fun)
+
 circuits = [
     {'route': [input_node_1, ots_1, ots_2, ots_3, ots_4, output_node_1]},
-    {'route': [input_node_2, ots_1, ots_3, ots_4, output_node_2]},
+    {'route': [input_node_2, ots_3, ots_5, ots_4, ots_1, output_node_2]},
     {'route': [input_node_3, ots_1, ots_2, ots_3, ots_4, output_node_3]},
     #    {'route': [input_node_4, ots_2, output_node_4]},
 ]
