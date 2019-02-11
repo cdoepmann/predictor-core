@@ -53,17 +53,17 @@ class optimal_traffic_scheduler:
         bandwidth_load_target = [np.zeros((self.n_out_circuit, 1))]*self.N_steps
         memory_load_target = [np.zeros((self.n_out_circuit, 1))]*self.N_steps
 
-        self.predict = {}
-        self.predict['v_out_buffer'] = v_out_buffer
-        self.predict['v_out_circuit'] = v_out_circuit
-        self.predict['v_in_buffer'] = v_in_buffer
-        self.predict['v_in_circuit'] = v_in_circuit
-        self.predict['s_buffer'] = s_buffer
-        self.predict['s_circuit'] = s_circuit
-        self.predict['bandwidth_load'] = bandwidth_load
-        self.predict['memory_load'] = memory_load
-        self.predict['bandwidth_load_target'] = bandwidth_load_target
-        self.predict['memory_load_target'] = memory_load_target
+        self.predict = [{}]
+        self.predict[0]['v_out_buffer'] = v_out_buffer
+        self.predict[0]['v_out_circuit'] = v_out_circuit
+        self.predict[0]['v_in_buffer'] = v_in_buffer
+        self.predict[0]['v_in_circuit'] = v_in_circuit
+        self.predict[0]['s_buffer'] = s_buffer
+        self.predict[0]['s_circuit'] = s_circuit
+        self.predict[0]['bandwidth_load'] = bandwidth_load
+        self.predict[0]['memory_load'] = memory_load
+        self.predict[0]['bandwidth_load_target'] = bandwidth_load_target
+        self.predict[0]['memory_load_target'] = memory_load_target
 
     def initialize_record(self):
         # TODO : Save initial condition (especially for s)
@@ -78,9 +78,9 @@ class optimal_traffic_scheduler:
         self.record = {'time': [], 'v_in_circuit': [], 'v_out_circuit': [], 'v_in_buffer': [], 'v_out_buffer': [],
                        's_circuit': [], 's_buffer': [], 'bandwidth_load': [], 'memory_load': [],
                        'bandwidth_load_target': [], 'memory_load_target': []}
-
-        for predict_key in self.predict.keys():
-            self.record[predict_key].append(self.predict[predict_key][0])
+        # Set the first element of the predicted values as the first element of the recorded values.
+        for predict_key in self.predict[0].keys():
+            self.record[predict_key].append(self.predict[0][predict_key][0])
 
     def problem_formulation(self):
         # Buffer memory
@@ -201,7 +201,7 @@ class optimal_traffic_scheduler:
         "Solve" also advances the time of the node by one time_step.
         """
         # Get previous solution:
-        v_buffer_out_prev = self.predict['v_out_buffer']
+        v_buffer_out_prev = self.predict[-1]['v_out_buffer']
         # Create concatented parameter vector:
         param = np.concatenate((s_buffer_0, *v_in_buffer, *v_buffer_out_prev[1:], *bandwidth_load_target, *memory_load_target), axis=0)
         # Get initial condition:
@@ -223,15 +223,16 @@ class optimal_traffic_scheduler:
 
         memory_load_node = [np.sum(s_k, keepdims=True)/self.s_max for s_k in s_buffer]
 
-        self.predict['v_in_buffer'] = v_in_buffer
-        self.predict['v_out_buffer'] = v_out_buffer
-        self.predict['s_buffer'] = s_buffer
-        self.predict['bandwidth_load'] = bandwidth_load_node
-        self.predict['memory_load'] = memory_load_node
-        self.predict['bandwidth_load_target'] = np.copy(bandwidth_load_target)
-        self.predict['memory_load_target'] = np.copy(memory_load_target)
-
         self.time += self.dt
+
+        self.predict.append({})
+        self.predict[-1]['v_in_buffer'] = v_in_buffer
+        self.predict[-1]['v_out_buffer'] = v_out_buffer
+        self.predict[-1]['s_buffer'] = s_buffer
+        self.predict[-1]['bandwidth_load'] = bandwidth_load_node
+        self.predict[-1]['memory_load'] = memory_load_node
+        self.predict[-1]['bandwidth_load_target'] = np.copy(bandwidth_load_target)
+        self.predict[-1]['memory_load_target'] = np.copy(memory_load_target)
 
         if self.record_values:
             self.record['time'].append(np.copy(self.time))
@@ -261,9 +262,9 @@ class optimal_traffic_scheduler:
         return v_in_circuit, bandwidth_load, memory_load
 
     def simulate_circuits(self, output_partition):
-        v_in_circuit = self.predict['v_in_circuit']
-        v_out_buffer = self.predict['v_out_buffer']
-        s_buffer = self.predict['s_buffer']
+        v_in_circuit = self.predict[-1]['v_in_circuit']
+        v_out_buffer = self.predict[-1]['v_out_buffer']
+        s_buffer = self.predict[-1]['s_buffer']
         s_buffer_0 = self.record['s_buffer'][-2]
         s_circuit_0 = self.record['s_circuit'][-1]
         v_out_circuit = []
@@ -287,8 +288,8 @@ class optimal_traffic_scheduler:
             s_circuit_k_new = s_circuit_k+v_in_circuit[k]-v_out_circuit[k]
             s_circuit.append(s_circuit_k_new)
 
-        self.predict['v_out_circuit'] = v_out_circuit
-        self.predict['s_circuit'] = s_circuit
+        self.predict[-1]['v_out_circuit'] = v_out_circuit
+        self.predict[-1]['s_circuit'] = s_circuit
         if self.record_values:
             self.record['v_out_circuit'].append(v_out_circuit[0])
             self.record['v_in_circuit'].append(v_in_circuit[0])

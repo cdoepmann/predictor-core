@@ -5,30 +5,38 @@ import pdb
 
 
 class client_node:
-    def __init__(self, N_horizon, name='client_node', source_fun=None, target_fun=None):
+    def __init__(self, dt, name='client_node', source_fun=None, target_fun=None):
         """
         Mimics the behavior of a server node. Can be both source or target of a connection.
         Inputs:
-        - N_horizon : Prediction horizon.
+        - dt : time step.
         - source_fun: [Optional, when used as target node] function that returns a sequence of package_streams, when evaluated with the current time_step.
         - target_fun: [Optional, when used as source node] function that returns a sequence of bandwidth_load and memory_load, when evaluated with the current time_step.
         """
-        self.predict = {}
+        self.predict = [{}]
+        self.record = {}
         self.obj_name = name
         self.source_fun = source_fun
         self.target_fun = target_fun
+        self.dt = dt
 
-    def get_input(self, time_step):
-        if not self.source_fun:
-            raise Exception('source_fun was not defined. Can not get input for client node')
-        else:
-            self.predict['v_out_circuit'] = self.source_fun(time_step)
+        # Initialize client:
+        self.time = np.array([[0]])  # 1,1 array for consistency.
+        self.simulate()
+        # Set the first element of the predicted values as the first element of the recorded values.
+        for predict_key in self.predict[0].keys():
+            self.record[predict_key].append(self.predict[0][predict_key][0])
 
-    def get_output(self, time_step):
-        if not self.target_fun:
-            raise Exception('source_fun was not defined. Cant get input for client node')
-        else:
-            self.predict['bandwidth_load'], self.predict['memory_load'] = self.target_fun(time_step)
+    def simulate(self):
+        """
+        Mimics the simulation of the server nodes.
+        """
+        if self.source_fun:
+            self.predict.append({'v_out_circuit': self.source_fun(self.time)})
+        if self.target_fun:
+            # Note that self.target_fun(self.time) returns two elements.
+            self.predict.append({name: val for name, val in zip(['bandwidth_load', 'memory_load'], self.target_fun(self.time))})
+        self.time += self.dt
 
 
 class distributed_network:
@@ -44,18 +52,14 @@ class distributed_network:
         # Apply this function to each row of the connections DataFrame, such that:
         # connections['v_circuit'] = connections.apply(v_circuit_fun, axis=1)
         def v_circuit_fun(row, time_step):
-            if type(row['source']) is client_node:
-                row['source'].get_input(time_step)
-            if type(row['target']) is client_node:
-                row['target'].get_output(time_step)
             # Package stream is depending on the source. Create [N_timesteps x n_outputs x 1] array (with np.stack())
             # and access the element that is stored in 'output_ind' for each connection.
-            return np.stack(row['source'].predict['v_out_circuit'])[:, [row['output_ind']], :]
+            return np.stack(row['source'].predict[-1]['v_out_circuit'])[:, [row['output_ind']], :]
 
-        self.connections['v_circuit'] = self.connections.apply(v_circuit_fun(self.time_step), axis=1)
+        self.connections['v_circuit'] = self.connections.apply(lambda row: v_circuit_fun(row, self.time_step), axis=1)
         # Bandwidth and memory load are depending on the target. Create [N_timesteps x 1 x1] array.
-        self.connections['bandwidth_load'] = self.connections.apply(lambda row: np.stack(row['target'].predict['bandwidth_load']), axis=1)
-        self.connections['memory_load'] = self.connections.apply(lambda row: np.stack(row['target'].predict['memory_load']), axis=1)
+        self.connections['bandwidth_load'] = self.connections.apply(lambda row: np.stack(row['target'].predict[-1]['bandwidth_load']), axis=1)
+        self.connections['memory_load'] = self.connections.apply(lambda row: np.stack(row['target'].predict[-1]['memory_load']), axis=1)
         # b) Iterate over all nodes, query respective I/O data from connections and simulate node
         for k, node_k in self.nodes.iterrows():
             # Simulate only if the node is an optimal_traffic_scheduler.
@@ -70,7 +74,7 @@ class distributed_network:
                 output_delay = self.connections.loc[node_k['con_out'], 'delay'].values.reshape(-1, 1)
 
                 # Correct inputs due to delay (latency):
-                v_in_circuit, bandwidth_load, memory_load = node_k.node.latency_adaption(v_in_circuit, bandwidth_load, memory_load, input_delay, output_delay)
+                #v_in_circuit, bandwidth_load, memory_load = node_k.node.latency_adaption(v_in_circuit, bandwidth_load, memory_load, input_delay, output_delay)
 
                 io_mapping = node_k.io_mapping
                 output_partition = node_k.output_partition
@@ -85,11 +89,14 @@ class distributed_network:
                 memory_load = output_partition/np.sum(output_partition, axis=1, keepdims=True)@memory_load
 
                 # Simulate Node with intial condition:
-                s0 = node_k.node.predict['s_buffer'][0]
+                s0 = node_k.node.record['s_buffer'][-1]
                 node_k.node.solve(s0, v_in_buffer, bandwidth_load, memory_load)
                 # Calculate and add circuit information to node:
-                node_k.node.predict['v_in_circuit'] = [v_in_circuit[k] for k in range(node_k['node'].N_steps)]
+                node_k.node.predict[-1]['v_in_circuit'] = [v_in_circuit[k] for k in range(node_k['node'].N_steps)]
                 node_k.node.simulate_circuits(output_partition)
+            if type(node_k.node) is client_node:
+                # pdb.set_trace()
+                node_k.node.simulate()
 
         self.time_step += 1
 
