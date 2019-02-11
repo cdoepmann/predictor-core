@@ -54,7 +54,7 @@ circuits = [
 ]
 
 
-dn = distributed_network(circuits)
+dn = distributed_network(circuits, delay=0.1)
 
 gt_anim = ots_gt_plot(dn)
 gt_anim.anim_gt()

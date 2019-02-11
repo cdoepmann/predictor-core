@@ -32,9 +32,9 @@ class client_node:
 
 
 class distributed_network:
-    def __init__(self, circuits):
+    def __init__(self, circuits, delay=0):
         self.connections, self.nodes = self.circ_2_network(circuits)
-        self.analyze_connections()
+        self.analyze_connections(delay=delay)
         self.time_step = 0
 
     def simulate(self):
@@ -43,16 +43,16 @@ class distributed_network:
 
         # Apply this function to each row of the connections DataFrame, such that:
         # connections['v_circuit'] = connections.apply(v_circuit_fun, axis=1)
-        def v_circuit_fun(row):
+        def v_circuit_fun(row, time_step):
             if type(row['source']) is client_node:
-                row['source'].get_input(self.time_step)
+                row['source'].get_input(time_step)
             if type(row['target']) is client_node:
-                row['target'].get_output(self.time_step)
+                row['target'].get_output(time_step)
             # Package stream is depending on the source. Create [N_timesteps x n_outputs x 1] array (with np.stack())
             # and access the element that is stored in 'output_ind' for each connection.
             return np.stack(row['source'].predict['v_out_circuit'])[:, [row['output_ind']], :]
 
-        self.connections['v_circuit'] = self.connections.apply(v_circuit_fun, axis=1)
+        self.connections['v_circuit'] = self.connections.apply(v_circuit_fun(self.time_step), axis=1)
         # Bandwidth and memory load are depending on the target. Create [N_timesteps x 1 x1] array.
         self.connections['bandwidth_load'] = self.connections.apply(lambda row: np.stack(row['target'].predict['bandwidth_load']), axis=1)
         self.connections['memory_load'] = self.connections.apply(lambda row: np.stack(row['target'].predict['memory_load']), axis=1)
@@ -65,6 +65,12 @@ class distributed_network:
                 # Concatenate bandwidth and memory load for all outputs:
                 bandwidth_load = np.concatenate(self.connections.loc[node_k['con_out'], 'bandwidth_load'].values, axis=1)
                 memory_load = np.concatenate(self.connections.loc[node_k['con_out'], 'memory_load'].values, axis=1)
+                # Delay Information:
+                input_delay = self.connections.loc[node_k['con_in'], 'delay'].values.reshape(-1, 1)
+                output_delay = self.connections.loc[node_k['con_out'], 'delay'].values.reshape(-1, 1)
+
+                # Correct inputs due to delay (latency):
+                v_in_circuit, bandwidth_load, memory_load = node_k.node.latency_adaption(v_in_circuit, bandwidth_load, memory_load, input_delay, output_delay)
 
                 io_mapping = node_k.io_mapping
                 output_partition = node_k.output_partition
@@ -106,7 +112,7 @@ class distributed_network:
         con_pd['target_name'] = con_pd['target'].apply(lambda obj: obj.obj_name)
         return con_pd, nodes_pd
 
-    def analyze_connections(self):
+    def analyze_connections(self, delay=0):
         """
         Analyzes the connections and nodes and adds further information
         """
@@ -115,6 +121,10 @@ class distributed_network:
         self.connections['v_circuit'] = None
         self.connections['bandwidth_load'] = None
         self.connections['memory_load'] = None
+        if delay == 'random':
+            self.connections['delay'] = np.random.rand(len(self.connections), 1)
+        else:
+            self.connections['delay'] = delay
 
         self.nodes['con_in'] = None
         self.nodes['n_in'] = None

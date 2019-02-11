@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from casadi import *
 import pdb
+from scipy.interpolate import interp1d
 
 
 class optimal_traffic_scheduler:
@@ -43,20 +44,26 @@ class optimal_traffic_scheduler:
         # Initial conditions: all zeros.
         v_out_buffer = [np.zeros((self.n_out_buffer, 1))]*self.N_steps
         v_out_circuit = [np.zeros((self.n_out_circuit, 1))]*self.N_steps
+        v_in_buffer = [np.zeros((self.n_out_buffer, 1))]*self.N_steps
         v_in_circuit = [np.zeros((self.n_in, 1))]*self.N_steps
         s_buffer = [np.zeros((self.n_out_buffer, 1))]*self.N_steps
         s_circuit = [np.zeros((self.n_out_circuit, 1))]*self.N_steps
         bandwidth_load = [np.zeros((1, 1))]*self.N_steps
         memory_load = [np.zeros((1, 1))]*self.N_steps
+        bandwidth_load_target = [np.zeros((self.n_out_circuit, 1))]*self.N_steps
+        memory_load_target = [np.zeros((self.n_out_circuit, 1))]*self.N_steps
 
         self.predict = {}
         self.predict['v_out_buffer'] = v_out_buffer
         self.predict['v_out_circuit'] = v_out_circuit
+        self.predict['v_in_buffer'] = v_in_buffer
         self.predict['v_in_circuit'] = v_in_circuit
         self.predict['s_buffer'] = s_buffer
         self.predict['s_circuit'] = s_circuit
         self.predict['bandwidth_load'] = bandwidth_load
         self.predict['memory_load'] = memory_load
+        self.predict['bandwidth_load_target'] = bandwidth_load_target
+        self.predict['memory_load_target'] = memory_load_target
 
     def initialize_record(self):
         # TODO : Save initial condition (especially for s)
@@ -237,6 +244,22 @@ class optimal_traffic_scheduler:
             self.record['memory_load_target'].append(memory_load_target[0])
         return self.predict
 
+    def latency_adaption(self, v_in_circuit, bandwidth_load_target, memory_load_target, input_delay, output_delay):
+        # Recall previous inputs and solution
+        prev = self.predict
+        v_in_circuit_ext = np.concatenate(([prev['v_in_circuit'][0]], v_in_circuit), axis=0)
+        bandwidth_load_target_ext = np.concatenate(([prev['bandwidth_load_target'][0]], bandwidth_load_target), axis=0)
+        memory_load_target_ext = np.concatenate(([prev['memory_load_target'][0]], memory_load_target), axis=0)
+        pdb.set_trace()
+        t_in = self.dt*np.arange(-1, self.N_steps)+input_delay
+        t_out = self.dt*np.arange(-1, self.N_steps)+output_delay
+
+        t_interp = self.dt*np.arange(self.N_steps)
+
+        v_in_circuit_interp = interp1d(t_in, v_in_circuit_ext)(t_interp)
+
+        return v_in_circuit, bandwidth_load, memory_load
+
     def simulate_circuits(self, output_partition):
         v_in_circuit = self.predict['v_in_circuit']
         v_out_buffer = self.predict['v_out_buffer']
@@ -270,3 +293,10 @@ class optimal_traffic_scheduler:
             self.record['v_out_circuit'].append(v_out_circuit[0])
             self.record['v_in_circuit'].append(v_in_circuit[0])
             self.record['s_circuit'].append(s_circuit[0])
+
+
+def interpol_nd(x, y, x_new, axis=0):
+    dx = x - np.roll(x, shift=-1, axis=axis)
+    dy = y - np.roll(y, shift=-1, axis=axis)
+    dx_dy = np.remove(dx/dy, -1, axis=axis)
+    return x+dx/dy*(x-x_new)
