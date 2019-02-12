@@ -249,21 +249,22 @@ class optimal_traffic_scheduler:
         """
         Adapting the incoming predictions due to latency.
         """
+        assert self.dt > np.max(input_delay) and self.dt > np.max(output_delay), "Delays that are greater than one optimization time step are currently not supported."
         # Extend the current predictions by repeating the end value.
         # This is required since we need to extrapolate further than the current horizon, when information is delayed.
         v_in_circuit_ext = np.concatenate((v_in_circuit, v_in_circuit[[-1]]), axis=0)
         # Delay of incoming connections affect v_in_circuit. (n_timesteps x n_components x 1 tensor)
         t_in = self.dt*np.arange(-1, self.N_steps).reshape(-1, 1, 1)+input_delay.reshape(1, -1, 1)
         # At these times the values will be interpolated:
-        t_interp_in = self.dt*np.arange(self.N_steps).reshape(-1, 1, 1)+np.zeros(1, v_in_circuit_ext.shape[1], 1)
-        v_in_circuit_interp = interpol_nd(t_in, v_in_circuit_ext, t_interp)
+        t_interp_in = self.dt*np.arange(self.N_steps).reshape(-1, 1, 1)+np.zeros((1, v_in_circuit_ext.shape[1], 1))
+        v_in_circuit_interp = interpol_nd(t_in, v_in_circuit_ext, t_interp_in)
 
         # Bandwidth and memory load of receiving servers are treated differently. Again, we are looking at "old" information,
         # but now we also need to take into accound that the actions at the current node influence the receiving nodes in the
         # future. This means we discard the first element of bandwidth_load_target and memory_load_target as they lie completely in the past.
         # Furthermore, we need to extend the prediction by two further timesteps, which is achieved by repeating the end value twice.
-        bandwidth_load_target_ext = np.concatenate((bandwidth_load_target[1:], 2*bandwidth_load_target[[-1]]), axis=0)
-        memory_load_target_ext = np.concatenate((memory_load_target[1:], 2*memory_load_target[[-1]]), axis=0)
+        bandwidth_load_target_ext = np.concatenate((bandwidth_load_target[1:], np.repeat(bandwidth_load_target[[-1]], 2, axis=0)), axis=0)
+        memory_load_target_ext = np.concatenate((memory_load_target[1:], np.repeat(memory_load_target[[-1]], 2, axis=0)), axis=0)
         # The time at which the truncated predictions will be valid:
         t_out = self.dt*np.arange(self.N_steps+1).reshape(-1, 1, 1)  # (0, 1, 2 ... , N+1)
         # The time at which the current action will affect the receiving server:
@@ -311,8 +312,8 @@ class optimal_traffic_scheduler:
 
 def interpol_nd(x, y, x_new, axis=0):
     """
-    Very simple and fast interpolation of a function y=f(x) where x and x_new are ordered sequences with
-    equal spacing and offset.
+    Very simple and fast interpolation of a function y=f(x) where x and x_new are ordered sequences and the following is true:
+    x[k]<= x_new[k] <= x[k+1] for all k=0, ..., len(x_new)
     Sequence data is supplied in axis=axis (default = 0).
     """
 
