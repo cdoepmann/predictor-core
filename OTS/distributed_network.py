@@ -13,29 +13,32 @@ class client_node:
         - source_fun: [Optional, when used as target node] function that returns a sequence of package_streams, when evaluated with the current time_step.
         - target_fun: [Optional, when used as source node] function that returns a sequence of bandwidth_load and memory_load, when evaluated with the current time_step.
         """
-        self.predict = [{}]
+        self.predict = []
         self.record = {}
         self.obj_name = name
         self.source_fun = source_fun
         self.target_fun = target_fun
         self.dt = dt
-
         # Initialize client:
         self.time = np.array([[0]])  # 1,1 array for consistency.
         self.simulate()
-        # Set the first element of the predicted values as the first element of the recorded values.
-        for predict_key in self.predict[0].keys():
-            self.record[predict_key].append(self.predict[0][predict_key][0])
 
     def simulate(self):
         """
         Mimics the simulation of the server nodes.
         """
+        self.predict.append({})
         if self.source_fun:
-            self.predict.append({'v_out_circuit': self.source_fun(self.time)})
+            self.predict[-1]['v_out_circuit'] = self.source_fun(self.time)
         if self.target_fun:
-            # Note that self.target_fun(self.time) returns two elements.
-            self.predict.append({name: val for name, val in zip(['bandwidth_load', 'memory_load'], self.target_fun(self.time))})
+            self.predict[-1]['bandwidth_load'], self.predict[-1]['memory_load'] = self.target_fun(self.time)
+
+        # Set the first element of the predicted values as the first element of the recorded values.
+        for predict_key in self.predict[0].keys():
+            if not predict_key in self.record.keys():  # When initializing.
+                self.record[predict_key] = []
+            self.record[predict_key].append(self.predict[0][predict_key][0])
+
         self.time += self.dt
 
 
@@ -49,17 +52,28 @@ class distributed_network:
         # In every simulation:
         # a) Determine associated properties for every connection that are determined by the source and target:
 
-        # Apply this function to each row of the connections DataFrame, such that:
+        # Apply these functions to each row of the connections DataFrame, such that (e.g.):
         # connections['v_circuit'] = connections.apply(v_circuit_fun, axis=1)
-        def v_circuit_fun(row, time_step):
+        def v_circuit_fun(row):
             # Package stream is depending on the source. Create [N_timesteps x n_outputs x 1] array (with np.stack())
             # and access the element that is stored in 'output_ind' for each connection.
-            return np.stack(row['source'].predict[-1]['v_out_circuit'])[:, [row['output_ind']], :]
+            # Also take delay of connection into account. In most cases the second to last solution is received at a given time.
+            delay_steps = int(min(np.ceil(row['delay']/row['source'].dt)+1, len(row['source'].predict)))
+            return np.stack(row['source'].predict[-delay_steps]['v_out_circuit'])[:, [row['output_ind']], :]
 
-        self.connections['v_circuit'] = self.connections.apply(lambda row: v_circuit_fun(row, self.time_step), axis=1)
-        # Bandwidth and memory load are depending on the target. Create [N_timesteps x 1 x1] array.
-        self.connections['bandwidth_load'] = self.connections.apply(lambda row: np.stack(row['target'].predict[-1]['bandwidth_load']), axis=1)
-        self.connections['memory_load'] = self.connections.apply(lambda row: np.stack(row['target'].predict[-1]['memory_load']), axis=1)
+        def bandwidth_load_fun(row):
+            # Bandwidth and memory load are depending on the target. Create [N_timesteps x 1 x1] array.
+            delay_steps = int(min(np.ceil(row['delay']/row['source'].dt)+1, len(row['source'].predict)))
+            return np.stack(row['target'].predict[-delay_steps]['bandwidth_load'])
+
+        def memory_load_fun(row):
+            delay_steps = int(min(np.ceil(row['delay']/row['source'].dt)+1, len(row['source'].predict)))
+            return np.stack(row['target'].predict[-delay_steps]['memory_load'])
+
+        self.connections['v_circuit'] = self.connections.apply(v_circuit_fun, axis=1)
+        self.connections['bandwidth_load'] = self.connections.apply(bandwidth_load_fun, axis=1)
+        self.connections['memory_load'] = self.connections.apply(memory_load_fun, axis=1)
+
         # b) Iterate over all nodes, query respective I/O data from connections and simulate node
         for k, node_k in self.nodes.iterrows():
             # Simulate only if the node is an optimal_traffic_scheduler.
@@ -74,7 +88,7 @@ class distributed_network:
                 output_delay = self.connections.loc[node_k['con_out'], 'delay'].values.reshape(-1, 1)
 
                 # Correct inputs due to delay (latency):
-                #v_in_circuit, bandwidth_load, memory_load = node_k.node.latency_adaption(v_in_circuit, bandwidth_load, memory_load, input_delay, output_delay)
+                v_in_circuit, bandwidth_load, memory_load = node_k.node.latency_adaption(v_in_circuit, bandwidth_load, memory_load, input_delay, output_delay)
 
                 io_mapping = node_k.io_mapping
                 output_partition = node_k.output_partition
