@@ -20,7 +20,7 @@ class optimal_traffic_scheduler:
         if 'n_in' and 'n_out_buffer' and 'n_out_circuit' in setup_dict.keys():
             self.n_in = setup_dict['n_in']
             self.n_out_buffer = setup_dict['n_out_buffer']
-            self.n_out_circuit = setup_dict['n_out_circuit']
+            self.n_circuit = setup_dict['n_out_circuit']
             self.setup()
 
     def setup(self, n_in=None, n_out_buffer=None, n_out_circuit=None):
@@ -31,8 +31,8 @@ class optimal_traffic_scheduler:
         """
         if n_in and n_out_buffer and n_out_circuit:
             self.n_in = n_in
-            self.n_out_buffer = n_out_buffer
-            self.n_out_circuit = n_out_circuit
+            self.n_out = n_out
+            self.n_circuit = n_out_circuit
 
         self.initialize_prediction()
         if self.record_values:
@@ -42,28 +42,32 @@ class optimal_traffic_scheduler:
 
     def initialize_prediction(self):
         # Initial conditions: all zeros.
-        v_out_buffer = [np.zeros((self.n_out_buffer, 1))]*self.N_steps
-        v_out_circuit = [np.zeros((self.n_out_circuit, 1))]*self.N_steps
-        v_in_buffer = [np.zeros((self.n_out_buffer, 1))]*self.N_steps
-        v_in_circuit = [np.zeros((self.n_in, 1))]*self.N_steps
-        s_buffer = [np.zeros((self.n_out_buffer, 1))]*self.N_steps
-        s_circuit = [np.zeros((self.n_out_circuit, 1))]*self.N_steps
+        v_out = [np.zeros((self.n_out, 1))]*self.N_steps
+        cv_out = [np.zeros((self.n_circuit, 1))]*self.N_steps
+        v_in = [np.zeros((self.n_out, 1))]*self.N_steps
+        cv_in = [np.zeros((self.n_in, 1))]*self.N_steps
+        s_buffer = [np.zeros((self.n_out, 1))]*self.N_steps
+        s_circuit = [np.zeros((self.n_circuit, 1))]*self.N_steps
         bandwidth_load = [np.zeros((1, 1))]*self.N_steps
         memory_load = [np.zeros((1, 1))]*self.N_steps
-        bandwidth_load_target = [np.zeros((self.n_out_circuit, 1))]*self.N_steps
-        memory_load_target = [np.zeros((self.n_out_circuit, 1))]*self.N_steps
+        bandwidth_load_target = [np.zeros((self.n_circuit, 1))]*self.N_steps
+        memory_load_target = [np.zeros((self.n_circuit, 1))]*self.N_steps
+        bandwidth_load_source = [np.zeros((self.n_circuit, 1))]*self.N_steps
+        memory_load_source = [np.zeros((self.n_circuit, 1))]*self.N_steps
 
         self.predict = [{}]
-        self.predict[0]['v_out_buffer'] = v_out_buffer
-        self.predict[0]['v_out_circuit'] = v_out_circuit
-        self.predict[0]['v_in_buffer'] = v_in_buffer
-        self.predict[0]['v_in_circuit'] = v_in_circuit
+        self.predict[0]['v_out'] = v_out
+        self.predict[0]['cv_out'] = cv_out
+        self.predict[0]['v_in'] = v_in
+        self.predict[0]['cv_in'] = cv_in
         self.predict[0]['s_buffer'] = s_buffer
         self.predict[0]['s_circuit'] = s_circuit
         self.predict[0]['bandwidth_load'] = bandwidth_load
         self.predict[0]['memory_load'] = memory_load
         self.predict[0]['bandwidth_load_target'] = bandwidth_load_target
         self.predict[0]['memory_load_target'] = memory_load_target
+        self.predict[0]['bandwidth_load_source'] = bandwidth_load_source
+        self.predict[0]['memory_load_source'] = memory_load_source
 
     def initialize_record(self):
         # TODO : Save initial condition (especially for s)
@@ -75,48 +79,60 @@ class optimal_traffic_scheduler:
         # while the second would increase the computation time. Lastly, it is not in our hand to influence the composition (with regards to circuits) of the output buffers
         # for the node. We can only manipulate the number of packages sent from each individual buffer and depending on the composition this will result in different amounts
         # of packages for each circuit.
-        self.record = {'time': [], 'v_in_circuit': [], 'v_out_circuit': [], 'v_in_buffer': [], 'v_out_buffer': [],
+        self.record = {'time': [], 'v_in': [], 'v_out': [], 'cv_in': [], 'cv_out': [],
                        's_circuit': [], 's_buffer': [], 'bandwidth_load': [], 'memory_load': [],
-                       'bandwidth_load_target': [], 'memory_load_target': []}
+                       'bandwidth_load_target': [], 'memory_load_target': [], 'bandwidth_load_source': [], 'memory_load_source': []}
         # Set the first element of the predicted values as the first element of the recorded values.
         for predict_key in self.predict[0].keys():
             self.record[predict_key].append(self.predict[0][predict_key][0])
 
     def problem_formulation(self):
         # Buffer memory
-        s_buffer = SX.sym('s_buffer', self.n_out_buffer, 1)
+        s_buffer = SX.sym('s_buffer', self.n_out, 1)
 
         # Incoming package stream for each buffer:
-        v_in_buffer = SX.sym('v_in_buffer', self.n_out_buffer, 1)
+        v_in = [SX.sym('v_in_'+str(i), 1, 1) for i in range(self.n_in)]
+        cv_in = [SX.sym('cv_in_'+str(i), self.n_circuit, 1) for i in range(self.n_in)]
 
         # Outgoing packet stream
-        v_out_buffer = SX.sym('v_out_buffer', self.n_out_buffer, 1)
+        v_out = SX.sym('v_out', self.n_out, 1)
+        cv_out = [SX.sym('cv_out_'+str(i), self.n_circuit, 1) for i in range(self.n_out)]
 
         # bandwidth / memory info outgoing servers
-        bandwidth_load = SX.sym('bandwidth_load', self.n_out_buffer, 1)
-        memory_load = SX.sym('memory_load', self.n_out_buffer, 1)
+        bandwidth_load_target = SX.sym('bandwidth_load_target', self.n_out, 1)
+        memory_load_target = SX.sym('memory_load_target', self.n_out, 1)
+
+        # bandwidth / memory info incoming servers
+        bandwidth_load_source = SX.sym('bandwidth_load_target', self.n_in, 1)
+        memory_load_source = SX.sym('memory_load_target', self.n_in, 1)
+
+        # Auxiliary values:
+        vc_in = vertcat(*[v_in_i*cv_in_i for v_in_i, cv_in_i in zip(v_in, cv_in)])
+
+        # Assignment Matrix: Which element of each input is assigned to which output buffer:
+        P = SX.sym('P', self.n_out, self.n_circuit)
 
         # system dynamics, constraints and objective definition:
-        s_next = s_buffer + self.dt*(v_in_buffer-v_out_buffer)
+        s_next = s_buffer + self.dt*(v_in-v_out)
         # Note: cons <= 0
         cons = [
             # maximum bandwidth cant be exceeded
-            sum1(v_in_buffer)+sum1(v_out_buffer) - self.v_max,
+            sum1(v_in)+sum1(v_out) - self.v_max,
             -s_buffer,  # buffer memory cant be <0 (for each output buffer)
-            -v_out_buffer,  # outgoing package stream cant be negative
+            -v_out,  # outgoing package stream cant be negative
         ]
         cons = vertcat(*cons)
 
         # Maximize bandwidth  and maximize buffer:(under consideration of outgoing server load)
-        # Note that 0<bandwidth_load<1 and memory_load is normalized by s_max but can exceed 1.
-        obj = sum1(((1-bandwidth_load)/fmax(memory_load, 1))*(-v_out_buffer/self.v_max+s_buffer/self.s_max))
+        # Note that 0<bandwidth_load_target<1 and memory_load_target is normalized by s_max but can exceed 1.
+        obj = sum1(((1-bandwidth_load_target)/fmax(memory_load_target, 1))*(-v_out/self.v_max+s_buffer/self.s_max))
 
         mpc_problem = {}
         mpc_problem['cons'] = Function(
-            'cons', [v_in_buffer, v_out_buffer, s_buffer, bandwidth_load, memory_load], [cons])
-        mpc_problem['obj'] = Function('obj', [v_in_buffer, v_out_buffer, s_buffer, bandwidth_load, memory_load], [obj])
+            'cons', [v_in_buffer, v_out, s_buffer, bandwidth_load_target, memory_load_target], [cons])
+        mpc_problem['obj'] = Function('obj', [v_in_buffer, v_out, s_buffer, bandwidth_load_target, memory_load_target], [obj])
         mpc_problem['model'] = Function(
-            'model', [v_in_buffer, v_out_buffer, s_buffer], [s_next])
+            'model', [v_in_buffer, v_out, s_buffer], [s_next])
 
         self.mpc_problem = mpc_problem
 
