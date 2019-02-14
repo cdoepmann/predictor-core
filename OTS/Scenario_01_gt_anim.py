@@ -21,7 +21,6 @@ ots_5 = optimal_traffic_scheduler(setup_dict, name='ots_5')
 
 
 source_fun = []
-
 data = np.convolve((6*np.random.rand(100, 3)).ravel(), np.ones(5)/5, mode='same').reshape(100, 3)
 # a = 1*np.array([1, 3, 5])
 # data = a*np.ones((500, 3))
