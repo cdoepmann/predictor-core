@@ -60,16 +60,20 @@ class network:
             source_buffer = con.source.output_buffer[con.source_ind]
             target_buffer = con.target.input_buffer[con.target_ind]
 
+            """ Send packages """
             n_send = np.minimum(con.window_size-con.transit_size, len(source_buffer))
-            con.transit.append(source_buffer.tail(n_send))
+            send = source_buffer.head(n_send)
+            send['tsent'] = self.t
+            con.transit_size += n_send
+            con.transit = con.transit.append(send)
 
-            """ Receive packages """
+            """ Receive packages  and send replies """
             # Receive packages, if the current time is greater than the sending time plus the connection delay.
             received = con.transit[con.transit['tsent']+con.latency_fun(con.transit['tsent']) >= self.t]
             # Add the ident and circuit information of these packages to the target_buffer:
             target_buffer = target_buffer.append(received[target_buffer.columns])
             # Reply that packages have been successfully sent and update the time.
-            received = received['tsent'] = self.t
+            received['tsent'] = self.t
             con.transit_reply = con.transit_reply.append(received)
             # Remove packages from transit.
             con.transit = con.transit[con.transit['ident'].isin(received['ident']) == 0]
@@ -80,6 +84,13 @@ class network:
             # Remove packages from source_buffer for each reply.
             source_buffer = source_buffer[source_buffer['ident'].isin(replied['ident']) == 0]
             con.transit_reply = con.transit_reply[con.transit_reply['ident'].isin(replied['ident']) == 0]
+
+            """ Save changes """
+            con.source.output_buffer[con.source_ind] = source_buffer
+            con.target.input_buffer[con.target_ind] = target_buffer
+
+        for nod in nodes:
+            None
 
 
 class global_ident:
@@ -111,13 +122,11 @@ mapping = np.array([[-1, 1], [-1, 1]])
 nw = network([input, server_1, output], [connection_1, connection_2], mapping)
 
 input.add_2_buffer(buffer_ind=0, circuit=0, n_packets=10)
-# nw.nodes[0].output_buffer[0]
-#
 
 
 nw.simulate()
 
 
-df = nw.nodes[0].output_buffer[0]
-
-df[df['ident'].isin([0, 3, 6]) == 0]
+# df = nw.nodes[0].output_buffer[0]
+#
+# df[df['ident'].isin([0, 3, 6]) == 0]
