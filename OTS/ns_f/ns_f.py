@@ -19,15 +19,15 @@ class server:
         if n_out:
             self.n_out = n_out
 
-        df_template_buffer = pd.DataFrame({'circuit': [], 'ident': []}, dtype='int32')
+        self.df_template_buffer = pd.DataFrame({'circuit': [], 'ident': []}, dtype='int32')
 
         self.input_buffer = []
         for i in range(self.n_in):
-            self.input_buffer.append(df_template_buffer)
+            self.input_buffer.append(self.df_template_buffer)
 
         self.output_buffer = []
         for i in range(self.n_out):
-            self.output_buffer.append(df_template_buffer)
+            self.output_buffer.append(self.df_template_buffer)
 
     def add_2_buffer(self, buffer_ind, circuit, n_packets, ident=None):
         if not ident:
@@ -113,7 +113,7 @@ class network:
 
             """ Send packages """
             n_send = np.minimum(con.feat.window_size-con.feat.transit_size, len(source_buffer))
-            send = source_buffer.head(n_send)
+            send = source_buffer.head(n_send).copy()
             send['tsent'] = self.t
             con.feat.transit_size += n_send
             con.feat.transit = con.feat.transit.append(send)
@@ -132,6 +132,7 @@ class network:
             """ Receive replies """
             # Receive replies, if the current time is greater than the sending time plus the connection delay.
             replied = con.feat.transit_reply[con.feat.transit_reply['tsent']+con.feat.latency_fun(con.feat.transit['tsent']) >= self.t]
+            con.feat.transit_size -= len(replied)
             # Remove packages from source_buffer for each reply.
             source_buffer = source_buffer[source_buffer['ident'].isin(replied['ident']) == 0]
             con.feat.transit_reply = con.feat.transit_reply[con.feat.transit_reply['ident'].isin(replied['ident']) == 0]
@@ -140,8 +141,17 @@ class network:
             con.source.output_buffer[con.source_ind] = source_buffer
             con.target.input_buffer[con.target_ind] = target_buffer
 
-        # for nod in nodes:
-        #     None
+        for i, nod in self.nodes.iterrows():
+            # concatenate all input buffers
+            if nod.node.input_buffer:
+                input_buffer = pd.concat(nod.node.input_buffer)
+                k = 0
+                for _, con in self.connections[nod.con_source].iterrows():
+                    nod.node.output_buffer[k] = nod.node.output_buffer[k].append(input_buffer[input_buffer['circuit'].isin(con.circuit)])
+                    k += 1
+            # Reset input buffer:
+            for i in range(nod.node.n_in):
+                nod.node.input_buffer[i] = nod.node.df_template_buffer
 
 
 class global_ident:
@@ -194,12 +204,22 @@ circuits = [
 nw = network(circuits)
 input_1.add_2_buffer(buffer_ind=0, circuit=0, n_packets=10)
 input_2.add_2_buffer(buffer_ind=0, circuit=1, n_packets=10)
-nw.simulate()
+
+for i in range(100):
+    nw.simulate()
 
 
-# nw.connections
-nw.nodes.iloc[1].node.input_buffer
-nw.connections[nw.nodes.iloc[1].con_source].circuit
+server_1.output_buffer
+# server_1.input_buffer
+server_2.output_buffer
+#
+# # nw.connections
+# df = pd.concat(nw.nodes.iloc[1].node.input_buffer)
+# df
+# nw.connections[nw.nodes.iloc[2].con_source].iloc[0].circuit
+#
+# df[df['circuit'].isin([0])]
+
 #
 # a = pd.DataFrame([1, 2, 3, 4])
 # a['b'] = pd.DataFrame([9, 3, 2])
