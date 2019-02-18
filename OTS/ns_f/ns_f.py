@@ -108,41 +108,40 @@ class network:
 
     def simulate(self):
         for i, con in self.connections.iterrows():
-            1
-            # source_buffer = con.source.output_buffer[con.source_ind]
-            # target_buffer = con.target.input_buffer[con.target_ind]
-            #
-            # """ Send packages """
-            # n_send = np.minimum(con.feat.window_size-con.feat.transit_size, len(source_buffer))
-            # send = source_buffer.head(n_send)
-            # send['tsent'] = self.t
-            # con.feat.transit_size += n_send
-            # con.feat.transit = con.feat.transit.append(send)
-            #
-            # """ Receive packages  and send replies """
-            # # Receive packages, if the current time is greater than the sending time plus the connection delay.
-            # received = con.feat.transit[con.feat.transit['tsent']+con.feat.latency_fun(con.feat.transit['tsent']) >= self.t]
-            # # Add the ident and circuit information of these packages to the target_buffer:
-            # target_buffer = target_buffer.append(received[target_buffer.columns])
-            # # Reply that packages have been successfully sent and update the time.
-            # received['tsent'] = self.t
-            # con.feat.transit_reply = con.feat.transit_reply.append(received)
-            # # Remove packages from transit.
-            # con.feat.transit = con.feat.transit[con.feat.transit['ident'].isin(received['ident']) == 0]
-            #
-            # """ Receive replies """
-            # # Receive replies, if the current time is greater than the sending time plus the connection delay.
-            # replied = con.feat.transit_reply[con.feat.transit_reply['tsent']+con.feat.latency_fun(con.feat.transit['tsent']) >= self.t]
-            # # Remove packages from source_buffer for each reply.
-            # source_buffer = source_buffer[source_buffer['ident'].isin(replied['ident']) == 0]
-            # con.feat.transit_reply = con.feat.transit_reply[con.feat.transit_reply['ident'].isin(replied['ident']) == 0]
-            #
-            # """ Save changes """
-            # con.source.output_buffer[con.source_ind] = source_buffer
-            # con.target.input_buffer[con.target_ind] = target_buffer
+            source_buffer = con.source.output_buffer[con.source_ind]
+            target_buffer = con.target.input_buffer[con.target_ind]
 
-            # for nod in nodes:
-            #     None
+            """ Send packages """
+            n_send = np.minimum(con.feat.window_size-con.feat.transit_size, len(source_buffer))
+            send = source_buffer.head(n_send)
+            send['tsent'] = self.t
+            con.feat.transit_size += n_send
+            con.feat.transit = con.feat.transit.append(send)
+
+            """ Receive packages  and send replies """
+            # Receive packages, if the current time is greater than the sending time plus the connection delay.
+            received = con.feat.transit[con.feat.transit['tsent']+con.feat.latency_fun(con.feat.transit['tsent']) >= self.t]
+            # Add the ident and circuit information of these packages to the target_buffer:
+            target_buffer = target_buffer.append(received[target_buffer.columns])
+            # Reply that packages have been successfully sent and update the time.
+            received['tsent'] = self.t
+            con.feat.transit_reply = con.feat.transit_reply.append(received)
+            # Remove packages from transit.
+            con.feat.transit = con.feat.transit[con.feat.transit['ident'].isin(received['ident']) == 0]
+
+            """ Receive replies """
+            # Receive replies, if the current time is greater than the sending time plus the connection delay.
+            replied = con.feat.transit_reply[con.feat.transit_reply['tsent']+con.feat.latency_fun(con.feat.transit['tsent']) >= self.t]
+            # Remove packages from source_buffer for each reply.
+            source_buffer = source_buffer[source_buffer['ident'].isin(replied['ident']) == 0]
+            con.feat.transit_reply = con.feat.transit_reply[con.feat.transit_reply['ident'].isin(replied['ident']) == 0]
+
+            """ Save changes """
+            con.source.output_buffer[con.source_ind] = source_buffer
+            con.target.input_buffer[con.target_ind] = target_buffer
+
+        # for nod in nodes:
+        #     None
 
 
 class global_ident:
@@ -197,8 +196,10 @@ input_1.add_2_buffer(buffer_ind=0, circuit=0, n_packets=10)
 input_2.add_2_buffer(buffer_ind=0, circuit=1, n_packets=10)
 nw.simulate()
 
+
 # nw.connections
-# nw.nodes
+nw.nodes.iloc[1].node.input_buffer
+nw.connections[nw.nodes.iloc[1].con_source].circuit
 #
 # a = pd.DataFrame([1, 2, 3, 4])
 # a['b'] = pd.DataFrame([9, 3, 2])
