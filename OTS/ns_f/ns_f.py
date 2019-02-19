@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import pdb
+from itertools import compress
 
 
 class server:
@@ -8,31 +9,26 @@ class server:
         self.ident = ident
         self.obj_name = name
 
-        if 'n_in' and 'n_out' in setup_dict:
-            self.n_in = setup_dict['n_in']
-            self.n_out = setup_dict['n_out']
-            self.setup()
-
-    def setup(self, n_in=None, n_out=None):
-        if n_in:
-            self.n_in = n_in
-        if n_out:
-            self.n_out = n_out
-
-        self.df_template_buffer = pd.DataFrame({'circuit': [], 'ident': []}, dtype='int32')
+    def setup(self, n_in, n_out, package_list, empty_list):
+        self.n_in = n_in
+        self.n_out = n_out
+        self.package_list = package_list
+        self.empty_list = empty_list
 
         self.input_buffer = []
         for i in range(self.n_in):
-            self.input_buffer.append(self.df_template_buffer)
+            self.input_buffer.append([])
 
         self.output_buffer = []
         for i in range(self.n_out):
-            self.output_buffer.append(self.df_template_buffer)
+            self.output_buffer.append([])
 
     def add_2_buffer(self, buffer_ind, circuit, n_packets, ident=None):
         if not ident:
             ident = self.ident.get(n_packets)
-        self.output_buffer[buffer_ind] = self.output_buffer[buffer_ind].append(pd.DataFrame({'circuit': circuit, 'ident': ident}, dtype='int32'))
+        index, self.empty_list = np.split(self.empty_list,[n_packets])
+        self.package_list.loc[index] = pd.DataFrame({'ident':ident, 'circuit':circuit})
+        self.output_buffer[buffer_ind]+=index.tolist()
 
 
 class connection:
@@ -40,17 +36,19 @@ class connection:
         self.latency_fun = latency_fun
         self.window_size = window_size
         self.transit_size = 0  # Number of packages in transit
-        self.transit = pd.DataFrame({'circuit': [], 'ident': [], 'tsent': []})
-        self.transit_reply = pd.DataFrame({'circuit': [], 'ident': [], 'tsent': []})
+        self.transit = []
+        self.transit_reply = []
 
 
 class network:
-    def __init__(self, circuits, t0=0, dt=0.01):
+    def __init__(self, t0=0, dt=0.01, packet_list_size=10000):
+        self.t = t0  # s
+        self.dt = dt  # s
+
+    def from_circuits(self, circuits, t0=0, dt=0.01, packet_list_size=10000):
         self.connections, self.nodes = self.circ_2_network(circuits)
         self.analyze_connections()
 
-        self.t = t0  # s
-        self.dt = dt  # s
 
     def circ_2_network(self, circuits):
         """
@@ -104,38 +102,52 @@ class network:
             if any(node_k['con_target']):
                 self.connections.loc[node_k['con_target'], 'target_ind'] = np.arange(node_k['n_in'], dtype='int16').tolist()
 
-            node_k['node'].setup(n_in=node_k['n_in'], n_out=node_k['n_out'])
+            node_k['node'].setup(n_in=node_k['n_in'], n_out=node_k['n_out'], package_list=self.package_list, empty_list=self.empty_list)
 
     def simulate(self):
+        pdb.set_trace()
         for i, con in self.connections.iterrows():
             source_buffer = con.source.output_buffer[con.source_ind]
             target_buffer = con.target.input_buffer[con.target_ind]
 
             """ Send packages """
             n_send = np.minimum(con.feat.window_size-con.feat.transit_size, len(source_buffer))
-            send = source_buffer.head(n_send).copy()
-            send['tsent'] = self.t
+            send_ind = source_buffer[:n_send]
+            self.package_list.loc[send_ind,'ts'] = self.t
             con.feat.transit_size += n_send
-            con.feat.transit = con.feat.transit.append(send)
+            con.feat.transit += send_ind
 
             """ Receive packages  and send replies """
             # Receive packages, if the current time is greater than the sending time plus the connection delay.
-            received = con.feat.transit[con.feat.transit['tsent']+con.feat.latency_fun(con.feat.transit['tsent']) >= self.t]
+            t_sent = self.package_list.loc[con.feat.transit, 'ts']
+            received_bool = t_sent + con.feat.latency_fun(t_sent) >= self.t #boolean table.
+            received_ind = list(compress(con.feat.transit, received_bool))
             # Add the ident and circuit information of these packages to the target_buffer:
-            target_buffer = target_buffer.append(received[target_buffer.columns])
+            target_buffer += received_ind
             # Reply that packages have been successfully sent and update the time.
-            received['tsent'] = self.t
-            con.feat.transit_reply = con.feat.transit_reply.append(received)
+            self.package_list.loc[received_ind,'tr'] = self.t
+            con.feat.transit_reply += received_ind
+
+            # Reset ts:
+            self.package_list.loc[con.feat.transit, 'ts'] = np.inf
+
             # Remove packages from transit.
-            con.feat.transit = con.feat.transit[con.feat.transit['ident'].isin(received['ident']) == 0]
+            con.feat.transit = list(set(con.feat.transit)-set(con.feat.transit_reply))
 
             """ Receive replies """
             # Receive replies, if the current time is greater than the sending time plus the connection delay.
-            replied = con.feat.transit_reply[con.feat.transit_reply['tsent']+con.feat.latency_fun(con.feat.transit['tsent']) >= self.t]
-            con.feat.transit_size -= len(replied)
+            t_replied = self.package_list.loc[con.feat.transit_reply, 'tr']
+            replied_bool = t_replied+con.feat.latency_fun(t_replied) >= self.t
+            replied_ind = list(compress(con.feat.transit_reply, replied_bool))
+            con.feat.transit_size -= len(replied_ind)
             # Remove packages from source_buffer for each reply.
-            source_buffer = source_buffer[source_buffer['ident'].isin(replied['ident']) == 0]
-            con.feat.transit_reply = con.feat.transit_reply[con.feat.transit_reply['ident'].isin(replied['ident']) == 0]
+            source_buffer = list(set(source_buffer)-set(replied_ind))
+
+            # Reset tr:
+            self.package_list.loc[con.feat.transit_reply, 'tr'] = np.inf
+
+            # Remove packages from transit reply:
+            con.feat.transit_reply = list(set(con.feat.transit_reply)-set(replied_ind))
 
             """ Save changes """
             con.source.output_buffer[con.source_ind] = source_buffer
@@ -143,15 +155,17 @@ class network:
 
         for i, nod in self.nodes.iterrows():
             # concatenate all input buffers
-            if nod.node.input_buffer:
-                input_buffer = pd.concat(nod.node.input_buffer)
-                k = 0
+            pdb.set_trace()
+            input_buffer = sum(nod.node.input_buffer)
+
+            if input_buffer:
+                pdb.set_trace()
                 for _, con in self.connections[nod.con_source].iterrows():
                     nod.node.output_buffer[k] = nod.node.output_buffer[k].append(input_buffer[input_buffer['circuit'].isin(con.circuit)])
                     k += 1
-            # Reset input buffer:
-            for i in range(nod.node.n_in):
-                nod.node.input_buffer[i] = nod.node.df_template_buffer
+                # Reset input buffer:
+                for i in range(nod.node.n_in):
+                    nod.node.input_buffer[i] = nod.node.df_template_buffer
 
 
 class global_ident:
@@ -167,6 +181,15 @@ class global_ident:
         out = self.ident+np.arange(n)
         self.ident += n
         return out
+
+class data:
+    def __init__(self, packet_list_size=10000):
+        self.package_list = pd.DataFrame([], index=range(packet_list_size), columns=['ident', 'circuit','ts','tr'])
+        self.package_list['ts'] = np.inf
+        self.package_list['tr'] = np.inf
+        self.empty_list = np.arange(packet_list_size)
+
+
 
 
 """ 01 """
@@ -201,7 +224,8 @@ circuits = [
     {'route': [input_2, server_1, server_2, output_2]},
 ]
 
-nw = network(circuits)
+nw = network()
+nw.from_circuits(circuits)
 input_1.add_2_buffer(buffer_ind=0, circuit=0, n_packets=10)
 input_2.add_2_buffer(buffer_ind=0, circuit=1, n_packets=10)
 
