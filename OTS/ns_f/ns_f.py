@@ -5,15 +5,14 @@ from itertools import compress
 
 
 class server:
-    def __init__(self, setup_dict, ident, name):
+    def __init__(self, setup_dict, ident, data, name):
         self.ident = ident
+        self.data = data
         self.obj_name = name
 
-    def setup(self, n_in, n_out, package_list, empty_list):
+    def setup(self, n_in, n_out):
         self.n_in = n_in
         self.n_out = n_out
-        self.package_list = package_list
-        self.empty_list = empty_list
 
         self.input_buffer = []
         for i in range(self.n_in):
@@ -26,8 +25,9 @@ class server:
     def add_2_buffer(self, buffer_ind, circuit, n_packets, ident=None):
         if not ident:
             ident = self.ident.get(n_packets)
-        index, self.empty_list = np.split(self.empty_list,[n_packets])
-        self.package_list.loc[index] = pd.DataFrame({'ident':ident, 'circuit':circuit})
+        index, self.data.empty_list = np.split(self.data.empty_list,[n_packets])
+        self.data.package_list.loc[index,'ident'] = ident
+        self.data.package_list.loc[index,'circuit'] = circuit
         self.output_buffer[buffer_ind]+=index.tolist()
 
 
@@ -41,9 +41,10 @@ class connection:
 
 
 class network:
-    def __init__(self, t0=0, dt=0.01, packet_list_size=10000):
+    def __init__(self, data, t0=0, dt=0.01, ):
         self.t = t0  # s
         self.dt = dt  # s
+        self.data = data
 
     def from_circuits(self, circuits, t0=0, dt=0.01, packet_list_size=10000):
         self.connections, self.nodes = self.circ_2_network(circuits)
@@ -102,10 +103,9 @@ class network:
             if any(node_k['con_target']):
                 self.connections.loc[node_k['con_target'], 'target_ind'] = np.arange(node_k['n_in'], dtype='int16').tolist()
 
-            node_k['node'].setup(n_in=node_k['n_in'], n_out=node_k['n_out'], package_list=self.package_list, empty_list=self.empty_list)
+            node_k['node'].setup(n_in=node_k['n_in'], n_out=node_k['n_out'])
 
     def simulate(self):
-        pdb.set_trace()
         for i, con in self.connections.iterrows():
             source_buffer = con.source.output_buffer[con.source_ind]
             target_buffer = con.target.input_buffer[con.target_ind]
@@ -113,30 +113,30 @@ class network:
             """ Send packages """
             n_send = np.minimum(con.feat.window_size-con.feat.transit_size, len(source_buffer))
             send_ind = source_buffer[:n_send]
-            self.package_list.loc[send_ind,'ts'] = self.t
+            self.data.package_list.loc[send_ind,'ts'] = self.t
             con.feat.transit_size += n_send
             con.feat.transit += send_ind
 
             """ Receive packages  and send replies """
             # Receive packages, if the current time is greater than the sending time plus the connection delay.
-            t_sent = self.package_list.loc[con.feat.transit, 'ts']
+            t_sent = self.data.package_list.loc[con.feat.transit, 'ts']
             received_bool = t_sent + con.feat.latency_fun(t_sent) >= self.t #boolean table.
             received_ind = list(compress(con.feat.transit, received_bool))
             # Add the ident and circuit information of these packages to the target_buffer:
             target_buffer += received_ind
             # Reply that packages have been successfully sent and update the time.
-            self.package_list.loc[received_ind,'tr'] = self.t
+            self.data.package_list.loc[received_ind,'tr'] = self.t
             con.feat.transit_reply += received_ind
 
             # Reset ts:
-            self.package_list.loc[con.feat.transit, 'ts'] = np.inf
+            self.data.package_list.loc[con.feat.transit, 'ts'] = np.inf
 
             # Remove packages from transit.
             con.feat.transit = list(set(con.feat.transit)-set(con.feat.transit_reply))
 
             """ Receive replies """
             # Receive replies, if the current time is greater than the sending time plus the connection delay.
-            t_replied = self.package_list.loc[con.feat.transit_reply, 'tr']
+            t_replied = self.data.package_list.loc[con.feat.transit_reply, 'tr']
             replied_bool = t_replied+con.feat.latency_fun(t_replied) >= self.t
             replied_ind = list(compress(con.feat.transit_reply, replied_bool))
             con.feat.transit_size -= len(replied_ind)
@@ -144,7 +144,7 @@ class network:
             source_buffer = list(set(source_buffer)-set(replied_ind))
 
             # Reset tr:
-            self.package_list.loc[con.feat.transit_reply, 'tr'] = np.inf
+            self.data.package_list.loc[con.feat.transit_reply, 'tr'] = np.inf
 
             # Remove packages from transit reply:
             con.feat.transit_reply = list(set(con.feat.transit_reply)-set(replied_ind))
@@ -155,17 +155,18 @@ class network:
 
         for i, nod in self.nodes.iterrows():
             # concatenate all input buffers
-            pdb.set_trace()
-            input_buffer = sum(nod.node.input_buffer)
+            input_buffer_ind = sum(nod.node.input_buffer,[])
+            input_buffer = self.data.package_list.loc[input_buffer_ind]
 
-            if input_buffer:
-                pdb.set_trace()
+            if input_buffer_ind:
+                k=0
                 for _, con in self.connections[nod.con_source].iterrows():
-                    nod.node.output_buffer[k] = nod.node.output_buffer[k].append(input_buffer[input_buffer['circuit'].isin(con.circuit)])
+                    output_buffer_ind = input_buffer[input_buffer['circuit'].isin(con.circuit)].index.to_list()
+                    nod.node.output_buffer[k] += output_buffer_ind
                     k += 1
                 # Reset input buffer:
                 for i in range(nod.node.n_in):
-                    nod.node.input_buffer[i] = nod.node.df_template_buffer
+                    nod.node.input_buffer[i] = []
 
 
 class global_ident:
@@ -212,19 +213,20 @@ class data:
 # nw.simulate()
 
 """ 02 """
+dat = data()
 ident = global_ident()
-input_1 = server({'n_in': 0, 'n_out': 1}, ident, name='input_1')
-input_2 = server({'n_in': 0, 'n_out': 1}, ident, name='input_2')
-output_1 = server({'n_in': 1, 'n_out': 0}, ident, name='output_1')
-output_2 = server({'n_in': 1, 'n_out': 0}, ident, name='output_2')
-server_1 = server({}, ident, name='server_1')
-server_2 = server({}, ident, name='server_2')
+input_1 = server({'n_in': 0, 'n_out': 1}, ident, dat, name='input_1')
+input_2 = server({'n_in': 0, 'n_out': 1}, ident, dat, name='input_2')
+output_1 = server({'n_in': 1, 'n_out': 0}, ident, dat, name='output_1')
+output_2 = server({'n_in': 1, 'n_out': 0}, ident, dat, name='output_2')
+server_1 = server({}, ident, dat, name='server_1')
+server_2 = server({}, ident, dat, name='server_2')
 circuits = [
     {'route': [input_1, server_1, server_2, output_1]},
     {'route': [input_2, server_1, server_2, output_2]},
 ]
 
-nw = network()
+nw = network(data=dat)
 nw.from_circuits(circuits)
 input_1.add_2_buffer(buffer_ind=0, circuit=0, n_packets=10)
 input_2.add_2_buffer(buffer_ind=0, circuit=1, n_packets=10)
@@ -233,9 +235,9 @@ for i in range(100):
     nw.simulate()
 
 
-server_1.output_buffer
+# server_1.output_buffer
 # server_1.input_buffer
-server_2.output_buffer
+# server_2.output_buffer
 #
 # # nw.connections
 # df = pd.concat(nw.nodes.iloc[1].node.input_buffer)
