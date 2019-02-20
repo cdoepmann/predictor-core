@@ -186,20 +186,21 @@ class network:
             con.source.output_buffer[con.source_ind] = source_buffer
             con.target.input_buffer[con.target_ind] = target_buffer
 
+        """ Process the newly arrived packages in the server """
         for i, nod in self.nodes.iterrows():
             # concatenate all input buffers
             input_buffer_ind = sum(nod.node.input_buffer, [])
             input_buffer = self.data.package_list.loc[input_buffer_ind]
+            # One group for each circuit in the input buffer:
+            circuits = input_buffer.groupby('circuit').groups
+            # This returns a dict with one key for each circuit. Each element of the dict is a list with indices
+            # of packets belonging to that circuit.
 
-            # When the input_buffer is not empty:
             if input_buffer_ind:
-                k = 0
-                # Check connections where the current node is the source. To each of these connections there is a respective output_buffer.
-                for _, con in self.connections[nod.con_source].iterrows():
-                    # Get indices of all elements in input_buffer that belong in the current output_buffer:
-                    output_buffer_ind = input_buffer[input_buffer['circuit'].isin(con.circuit)].index.tolist()
-                    nod.node.output_buffer[k] += output_buffer_ind
-                    k += 1
+                for k, buffer_circuit_k in enumerate(nod.node.output_buffer):
+                    # nod.output_circuits[k] is a list of circuits in the current output_buffer.
+                    # list(map(circuits.get, nod.output_circuits[k])) returns a list of lists with all the indices that belong in the current buffer.
+                    nod.node.output_buffer[k] += np.concatenate(list(map(circuits.get, nod.output_circuits[k]))).tolist()
                 # Reset input buffer:
                 for i in range(nod.node.n_in):
                     nod.node.input_buffer[i] = []
@@ -231,26 +232,6 @@ class data:
         self.empty_list = np.arange(packet_list_size)
 
 
-""" 01 """
-# ident = global_ident()
-#
-# setup_dict = {}
-# input = server({'n_in': 0, 'n_out': 1}, ident, name='input')
-# server_1 = server({'n_in': 1, 'n_out': 1}, ident, name='server_1')
-# output = server({'n_in': 1, 'n_out': 0}, ident, name='output')
-# connection_1 = connection(source=input, source_ind=0, target=server_1, target_ind=0)
-# connection_2 = connection(source=server_1, source_ind=0, target=output, target_ind=0)
-#
-# mapping = np.array([[-1, 1], [-1, 1]])
-#
-# nw = network([input, server_1, output], [connection_1, connection_2], mapping)
-#
-# input.add_2_buffer(buffer_ind=0, circuit=0, n_packets=10)
-#
-#
-# nw.simulate()
-
-""" 02 """
 dat = data()
 ident = global_ident()
 
@@ -277,19 +258,3 @@ input_2.add_2_buffer(buffer_ind=0, circuit=1, n_packets=10)
 
 for i in range(100):
     nw.simulate()
-
-# server_1.output_buffer
-# server_1.input_buffer
-# server_2.output_buffer
-#
-# # nw.connections
-# df = pd.concat(nw.nodes.iloc[1].node.input_buffer)
-# df
-# nw.connections[nw.nodes.iloc[2].con_source].iloc[0].circuit
-#
-# df[df['circuit'].isin([0])]
-
-#
-# a = pd.DataFrame([1, 2, 3, 4])
-# a['b'] = pd.DataFrame([9, 3, 2])
-# a

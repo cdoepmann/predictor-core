@@ -7,8 +7,8 @@ import pdb
 
 # Same configuration for all nodes:
 setup_dict = {}
-setup_dict['v_max'] = 20  # mb/s
-setup_dict['s_max'] = 30  # mb
+setup_dict['v_max'] = 20  # packets / s
+setup_dict['s_max'] = 30  # packets
 setup_dict['dt'] = 1  # s
 setup_dict['N_steps'] = 20
 setup_dict['v_delta_penalty'] = 3
