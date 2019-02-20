@@ -52,7 +52,7 @@ class network:
         self.dt = dt  # s
         self.data = data
 
-    def from_circuits(self, circuits, t0=0, dt=0.01, packet_list_size=10000):
+    def from_circuits(self, circuits, packet_list_size=10000):
         self.connections, self.nodes = self.circ_2_network(circuits)
         self.analyze_connections()
 
@@ -90,15 +90,18 @@ class network:
         self.nodes['n_in'] = None
         self.nodes['con_source'] = None
         self.nodes['n_out'] = None
+        self.nodes['output_circuits'] = None
 
         for k, node_k in self.nodes.iterrows():
             # Boolean array that indicates in which connections node_k is the source.
             node_k['con_source'] = (self.connections['source'] == node_k['node']).values
             node_k['n_out'] = sum(node_k['con_source'])
-            # The output of each node is a vector with n_out elements. 'source_ind' marks which
-            # of its elements refers to which connection:
             if any(node_k['con_source']):
+                # The output of each node is a vector with n_out elements. 'source_ind' marks which
+                # of its elements refers to which connection:
                 self.connections.loc[node_k['con_source'], 'source_ind'] = np.arange(node_k['n_out'], dtype='int16').tolist()
+                # A list item for each output_buffer that contains the circuits that are in this buffer:
+                node_k['output_circuits'] = self.connections.loc[node_k['con_source'], 'circuit'].tolist()
 
             # Boolean array that indicates in which connections node_k is the target. This determines the
             # number of inputs.
@@ -111,7 +114,6 @@ class network:
             node_k['node'].setup(n_in=node_k['n_in'], n_out=node_k['n_out'])
 
     def simulate(self):
-        pdb.set_trace()
         for i, con in self.connections.iterrows():
             source_buffer = con.source.output_buffer[con.source_ind]
             target_buffer = con.target.input_buffer[con.target_ind]
