@@ -30,6 +30,8 @@ class server:
         if not ident:
             ident = self.ident.get(n_packets)
         index, self.data.empty_list = np.split(self.data.empty_list, [n_packets])
+        if len(ident) != len(index):
+            pdb.set_trace()
         self.data.package_list.loc[index, 'ident'] = ident
         self.data.package_list.loc[index, 'circuit'] = circuit
         self.output_buffer[buffer_ind] += index.tolist()
@@ -178,7 +180,7 @@ class network:
 
             # Adjust window_size if all packages have been successfully sent (only if packages were also received.)
             if not con.window and any(replied_bool):
-                con.window_size *= 2
+                con.window_size = min(int(con.source.v_max*self.dt), con.window_size*2)
 
             """ Save changes """
             con.source.output_buffer[con.source_ind] = source_buffer
@@ -200,6 +202,13 @@ class network:
                 # Reset input buffer:
                 for i in range(nod.node.n_in):
                     nod.node.input_buffer[i] = []
+            # For a node without output:
+            if input_buffer_ind and not nod.output_circuits:
+                # Reset input buffer:
+                for i in range(nod.node.n_in):
+                    nod.node.input_buffer[i] = []
+                    nod.node.s -= len(input_buffer_ind)
+                self.data.empty_list = np.append(self.data.empty_list, input_buffer_ind)
 
         # Update time:
         self.t += self.dt
