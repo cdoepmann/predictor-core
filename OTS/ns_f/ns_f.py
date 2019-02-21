@@ -36,16 +36,6 @@ class server:
         self.s += n_packets
 
 
-class connection:
-    def __init__(self, latency_fun=lambda t: 0.01, window_size=2):
-        self.latency_fun = latency_fun
-        self.window_size = window_size
-        self.transit_size = 0  # Number of packages in transit
-        self.transit = []  # Packages currently in transit
-        self.window = []  # Packages currently beeing processed.
-        self.transit_reply = []  # Replies for successfully received packages currently in transit
-
-
 class network:
     def __init__(self, data, t0=0, dt=0.01, ):
         self.t = t0  # s
@@ -79,12 +69,20 @@ class network:
         return con_pd, nodes_pd
 
     def analyze_connections(self):
-        self.connections['feat'] = None
+        self.connections['latency_fun'] = None
+        self.connections['window_size'] = None
+        self.connections['window'] = None
+        self.connections['transit'] = None
+        self.connections['transit_reply'] = None
         self.connections['source_ind'] = None
         self.connections['target_ind'] = None
 
         for i, con in self.connections.iterrows():
-            con['feat'] = connection()
+            con['latency_fun'] = lambda t: 0.01
+            con['window_size'] = 2
+            con['window'] = []         # Packages currently in transit
+            con['transit'] = []        # Packages currently beeing processed.
+            con['transit_reply'] = []  # Replies for successfully received packages currently in transit
 
         self.nodes['con_target'] = None
         self.nodes['n_in'] = None
@@ -119,34 +117,34 @@ class network:
             target_buffer = con.target.input_buffer[con.target_ind]
 
             """ Check for time-outs in window """
-            t_sent = self.data.package_list.loc[con.feat.window, 'ts']
+            t_sent = self.data.package_list.loc[con.window, 'ts']
             timeout_bool = t_sent + con.source.timeout <= self.t
             # Remove items from current window, and adapt the window size:
             if any(timeout_bool):
-                timeout_ind = list(compress(con.feat.window, timeout_bool))
+                timeout_ind = list(compress(con.window, timeout_bool))
                 # Remove items from current window:
-                con.feat.window = list(set(con.feat.window)-set(timeout_ind))
-                con.feat.window_size = max(2, int(con.feat.window_size/2))
+                con.window = list(set(con.window)-set(timeout_ind))
+                con.window_size = max(2, int(con.window_size/2))
 
             """ Send packages """
             # If the last window is emptied or the current window is not completely in transit, start sending packages:
-            if not con.feat.window or len(con.feat.window) < con.feat.window_size:
-                send_candidate_ind = list(set(source_buffer)-set(con.feat.window))
-                n_send = min(con.feat.window_size-len(con.feat.window), len(send_candidate_ind), int(con.source.v_max*self.dt))
+            if not con.window or len(con.window) < con.window_size:
+                send_candidate_ind = list(set(source_buffer)-set(con.window))
+                n_send = min(con.window_size-len(con.window), len(send_candidate_ind), int(con.source.v_max*self.dt))
                 send_ind = send_candidate_ind[:n_send]
                 # Add indices to current window:
-                con.feat.window += send_ind
+                con.window += send_ind
                 # Send packages and update t_sent:
-                con.feat.transit += send_ind
+                con.transit += send_ind
                 self.data.package_list.loc[send_ind, 'ts'] = self.t
 
             """ Receive packages and send replies """
             # Receive packages, if the current time is greater than the sending time plus the connection delay.
-            t_sent = self.data.package_list.loc[con.feat.transit, 'ts']
-            received_bool = t_sent + con.feat.latency_fun(t_sent) <= self.t  # boolean table.
+            t_sent = self.data.package_list.loc[con.transit, 'ts']
+            received_bool = t_sent + con.latency_fun(t_sent) <= self.t  # boolean table.
             if any(received_bool):
                 # Packages that are candidates to enter the node:
-                received_candidate_ind = list(compress(con.feat.transit, received_bool))
+                received_candidate_ind = list(compress(con.transit, received_bool))
                 # Server cant receive packets if buffer is full:
                 n_received = min(len(received_candidate_ind), con.target.s_max-con.target.s)
                 received_ind = received_candidate_ind[:n_received]  # TODO: optional with np.random.choice()
@@ -155,32 +153,32 @@ class network:
                 con.target.s += len(received_ind)
                 # Reply that packages have been successfully sent and update the time.
                 self.data.package_list.loc[received_ind, 'tr'] = self.t
-                con.feat.transit_reply += received_ind
+                con.transit_reply += received_ind
                 # Reset ts for all received packages:
                 self.data.package_list.loc[received_ind, 'ts'] = np.inf
                 # Remove packages from transit, including those that were not accepted in the buffer.
-                con.feat.transit = list(set(con.feat.transit)-set(received_candidate_ind))
+                con.transit = list(set(con.transit)-set(received_candidate_ind))
 
             """ Receive replies """
             # Receive replies, if the current time is greater than the sending time plus the connection delay.
-            t_replied = self.data.package_list.loc[con.feat.transit_reply, 'tr']
-            replied_bool = t_replied+con.feat.latency_fun(t_replied) <= self.t
+            t_replied = self.data.package_list.loc[con.transit_reply, 'tr']
+            replied_bool = t_replied+con.latency_fun(t_replied) <= self.t
             if any(replied_bool):
-                replied_ind = list(compress(con.feat.transit_reply, replied_bool))
+                replied_ind = list(compress(con.transit_reply, replied_bool))
                 # Remove received packages from window:
-                con.feat.window = list(set(con.feat.window)-set(replied_ind))
+                con.window = list(set(con.window)-set(replied_ind))
                 # Remove received packages from source buffer:
                 source_buffer = list(set(source_buffer)-set(replied_ind))
                 con.source.s -= len(replied_ind)
                 # Remove received packages from transit reply:
-                con.feat.transit_reply = list(set(con.feat.transit_reply)-set(replied_ind))
+                con.transit_reply = list(set(con.transit_reply)-set(replied_ind))
 
                 # Reset tr:
                 self.data.package_list.loc[replied_ind, 'tr'] = np.inf
 
-            # Adjust window_size if all packages have been successfully sent:
-            if not con.feat.window:
-                con.feat.window_size *= 2
+            # Adjust window_size if all packages have been successfully sent (only if packages were also received.)
+            if not con.window and any(replied_bool):
+                con.window_size *= 2
 
             """ Save changes """
             con.source.output_buffer[con.source_ind] = source_buffer
@@ -190,23 +188,37 @@ class network:
         for i, nod in self.nodes.iterrows():
             # concatenate all input buffers
             input_buffer_ind = sum(nod.node.input_buffer, [])
-            input_buffer = self.data.package_list.loc[input_buffer_ind]
-            # One group for each circuit in the input buffer:
-            circuits = input_buffer.groupby('circuit').groups
-            # This returns a dict with one key for each circuit. Each element of the dict is a list with indices
-            # of packets belonging to that circuit.
+            # If something is in the input buffer and there exists at least one output buffer:
+            if input_buffer_ind and nod.output_circuits:
+                input_buffer = self.data.package_list.loc[input_buffer_ind]
+                input_buffer['to_output'] = input_buffer.apply(lambda row: self.get_output_buffer_ind(row, nod.output_circuits), axis=1)
 
-            if input_buffer_ind:
-                for k, buffer_circuit_k in enumerate(nod.node.output_buffer):
-                    # nod.output_circuits[k] is a list of circuits in the current output_buffer.
-                    # list(map(circuits.get, nod.output_circuits[k])) returns a list of lists with all the indices that belong in the current buffer.
-                    nod.node.output_buffer[k] += np.concatenate(list(map(circuits.get, nod.output_circuits[k]))).tolist()
+                for k in range(len(nod.node.output_buffer)):
+                    nod.node.output_buffer[k] += input_buffer[input_buffer['to_output'] == k].index.tolist()
                 # Reset input buffer:
                 for i in range(nod.node.n_in):
                     nod.node.input_buffer[i] = []
 
         # Update time:
         self.t += self.dt
+
+    @staticmethod
+    def get_output_buffer_ind(row, output_circuits):
+        """
+        Should be applied on copies of the data DataFrame (input_buffer) to determine for a given node, which
+        packet is assigned to which output_buffer.
+
+        Best explained with an example:
+        Assume three output_buffer carrying the circuits:
+        output_circuits = [[1,2],[3],[4,5]]
+
+        row['circuit'] = 1 -> returns 0
+        row['circuit'] = 2 -> returns 0
+        row['circuit'] = 3 -> returns 1
+        row['circuit'] = 4 -> returns 2
+        row['circuit'] = 5 -> returns 2
+        """
+        return [ind_k for ind_k, output_circuits_k in enumerate(output_circuits) if row['circuit'] in output_circuits_k][0]
 
 
 class global_ident:
