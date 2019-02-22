@@ -127,7 +127,7 @@ class network:
             if any(timeout_bool):
                 timeout_ind = list(compress(con.window, timeout_bool))
                 # Remove items from current window:
-                con.window = list(set(con.window)-set(timeout_ind))
+                con.window = self.remove_from_list(con.window, timeout_ind)
                 con.window_size = max(2, int(con.window_size/2))
 
             """ Send packages """
@@ -170,12 +170,12 @@ class network:
             if any(replied_bool):
                 replied_ind = list(compress(con.transit_reply, replied_bool))
                 # Remove received packages from window:
-                con.window = list(set(con.window)-set(replied_ind))
+                con.window = self.remove_from_list(con.window, replied_ind)
                 # Remove received packages from source buffer:
-                source_buffer = list(set(source_buffer)-set(replied_ind))
+                source_buffer = self.remove_from_list(source_buffer, replied_ind)
                 con.source.s -= len(replied_ind)
                 # Remove received packages from transit reply:
-                con.transit_reply = list(set(con.transit_reply)-set(replied_ind))
+                con.transit_reply = self.remove_from_list(con.transit_reply, replied_ind)
 
                 # Reset tr:
                 self.data.package_list.loc[replied_ind, 'tr'] = np.inf
@@ -221,6 +221,15 @@ class network:
 
     def make_measurement(self):
         self.nodes['composition'] = self.nodes.apply(self.get_server_composition, axis=1)
+
+    @staticmethod
+    def remove_from_list(list_a, list_b):
+        """
+        Remove all elements from list_a that are in list_b
+        and return the remaining elements from list_a without changing their order.
+        """
+        set_b = set(list_b)
+        return [a_i for a_i in list_a if a_i not in set_b]
 
     @staticmethod
     def get_output_buffer_ind(row, output_circuits):
