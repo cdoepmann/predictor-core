@@ -47,6 +47,8 @@ class network:
 
         self.linear_growth_threshold = 10
 
+        self.t_transmission = []
+
     def from_circuits(self, circuits, packet_list_size=1000):
         self.connections, self.nodes = self.circ_2_network(circuits)
         self.analyze_connections()
@@ -219,7 +221,7 @@ class network:
                 input_buffer = self.data.package_list.loc[input_buffer_ind]
                 # Get total transmission time of received packets:
                 t_transmission = self.t - input_buffer['tspawn']
-                pdb.set_trace()
+                self.t_transmission += t_transmission.tolist()
                 # Reset input buffer:
                 for i in range(nod.node.n_in):
                     nod.node.input_buffer[i] = []
