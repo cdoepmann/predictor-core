@@ -26,9 +26,10 @@ class server:
         for i in range(self.n_out):
             self.output_buffer.append([])
 
-    def add_2_buffer(self, buffer_ind, circuit, n_packets):
+    def add_2_buffer(self, buffer_ind, circuit, n_packets, tnow=0):
         index, self.data.empty_list = np.split(self.data.empty_list, [n_packets])
         self.data.package_list.loc[index, 'circuit'] = circuit
+        self.data.package_list.loc[index, 'tspawn'] = tnow
         self.output_buffer[buffer_ind] += index.tolist()
         self.s += n_packets
 
@@ -214,6 +215,11 @@ class network:
                     nod.node.input_buffer[i] = []
             # For a node without output:
             if input_buffer_ind and not nod.output_circuits:
+                # Create a view of the data_table that is currently in all the input buffers:
+                input_buffer = self.data.package_list.loc[input_buffer_ind]
+                # Get total transmission time of received packets:
+                t_transmission = self.t - input_buffer['tspawn']
+                pdb.set_trace()
                 # Reset input buffer:
                 for i in range(nod.node.n_in):
                     nod.node.input_buffer[i] = []
@@ -277,4 +283,5 @@ class data:
         self.package_list = pd.DataFrame([], index=range(packet_list_size), columns=['circuit', 'ts', 'tr'])
         self.package_list['ts'] = np.inf
         self.package_list['tr'] = np.inf
+        self.package_list['tspawn'] = np.inf  # time when the packet was created.
         self.empty_list = np.arange(packet_list_size)

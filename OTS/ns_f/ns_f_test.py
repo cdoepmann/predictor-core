@@ -35,9 +35,9 @@ n_steps = 500
 
 for k in range(n_steps):
     if k < 400 and input_1.s_max-input_1.s >= 3:
-        input_1.add_2_buffer(buffer_ind=0, circuit=0, n_packets=3)
+        input_1.add_2_buffer(buffer_ind=0, circuit=0, n_packets=3, tnow=nw.t)
     if k < 400 and input_2.s_max-input_2.s >= 3:
-        input_2.add_2_buffer(buffer_ind=0, circuit=1, n_packets=3)
+        input_2.add_2_buffer(buffer_ind=0, circuit=1, n_packets=3, tnow=nw.t)
 
     s_k = nw.nodes.apply(lambda row: row['node'].s, axis=1).tolist()
     win_size = nw.connections['window_size'].tolist()
@@ -47,8 +47,6 @@ for k in range(n_steps):
     t.append(nw.t)
 
     nw.simulate()
-
-    nw.make_measurement()
 
     if np.mod(k, 10) == 0:
         print('{} % completed'.format(100*k/n_steps))
