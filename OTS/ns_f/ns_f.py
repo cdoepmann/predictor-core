@@ -5,8 +5,7 @@ from itertools import compress
 
 
 class server:
-    def __init__(self, setup_dict, ident, data, name):
-        self.ident = ident
+    def __init__(self, setup_dict, data, name):
         self.data = data
         self.obj_name = name
         self.s_max = setup_dict['s_max']
@@ -26,13 +25,8 @@ class server:
         for i in range(self.n_out):
             self.output_buffer.append([])
 
-    def add_2_buffer(self, buffer_ind, circuit, n_packets, ident=None):
-        if not ident:
-            ident = self.ident.get(n_packets)
+    def add_2_buffer(self, buffer_ind, circuit, n_packets):
         index, self.data.empty_list = np.split(self.data.empty_list, [n_packets])
-        if len(ident) != len(index):
-            pdb.set_trace()
-        self.data.package_list.loc[index, 'ident'] = ident
         self.data.package_list.loc[index, 'circuit'] = circuit
         self.output_buffer[buffer_ind] += index.tolist()
         self.s += n_packets
@@ -150,7 +144,7 @@ class network:
                 # Server cant receive packets if buffer is full:
                 n_received = min(len(received_candidate_ind), con.target.s_max-con.target.s)
                 received_ind = received_candidate_ind[:n_received]  # TODO: optional with np.random.choice()
-                # Add the ident and circuit information of these packages to the target_buffer:
+                # Add the index and circuit information of these packages to the target_buffer:
                 target_buffer += received_ind
                 con.target.s += len(received_ind)
                 # Reply that packages have been successfully sent and update the time.
@@ -232,24 +226,9 @@ class network:
         return [ind_k for ind_k, output_circuits_k in enumerate(output_circuits) if row['circuit'] in output_circuits_k][0]
 
 
-class global_ident:
-    """
-    Class that is shared among all nodes of the network and used to create unique identifiers
-    for the packages.
-    """
-
-    def __init__(self):
-        self.ident = 0
-
-    def get(self, n=1):
-        out = self.ident+np.arange(n)
-        self.ident += n
-        return out
-
-
 class data:
     def __init__(self, packet_list_size=1000):
-        self.package_list = pd.DataFrame([], index=range(packet_list_size), columns=['ident', 'circuit', 'ts', 'tr'])
+        self.package_list = pd.DataFrame([], index=range(packet_list_size), columns=['circuit', 'ts', 'tr'])
         self.package_list['ts'] = np.inf
         self.package_list['tr'] = np.inf
         self.empty_list = np.arange(packet_list_size)
