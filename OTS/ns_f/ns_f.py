@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import pdb
 from itertools import compress
+from sklearn.utils import shuffle
 
 
 class server:
@@ -38,7 +39,14 @@ class network:
         self.dt = dt  # s
         self.data = data
 
-    def from_circuits(self, circuits, packet_list_size=10000):
+        """ Settings """
+        # Connections are processed in a loop and therefore packets in the input_buffer are sorted, even though they arrive during the same time interval.
+        # To have a more realistic output_buffer it is adviced to shuffle the newly processed packets before they are added.
+        self.shuffle_incoming_packets = True
+        # Shuffle the order in which connections are processed in each time step.
+        self.shuffle_connection_processing = False
+
+    def from_circuits(self, circuits, packet_list_size=1000):
         self.connections, self.nodes = self.circ_2_network(circuits)
         self.analyze_connections()
 
@@ -192,7 +200,10 @@ class network:
                 input_buffer['to_output'] = input_buffer.apply(lambda row: self.get_output_buffer_ind(row, nod.output_circuits), axis=1)
 
                 for k in range(len(nod.node.output_buffer)):
-                    nod.node.output_buffer[k] += input_buffer[input_buffer['to_output'] == k].index.tolist()
+                    if self.shuffle_incoming_packets:
+                        nod.node.output_buffer[k] += np.random.permutation(input_buffer[input_buffer['to_output'] == k].index.tolist()).tolist()
+                    else:
+                        nod.node.output_buffer[k] += input_buffer[input_buffer['to_output'] == k].index.tolist()
                 # Reset input buffer:
                 for i in range(nod.node.n_in):
                     nod.node.input_buffer[i] = []
@@ -202,10 +213,14 @@ class network:
                 for i in range(nod.node.n_in):
                     nod.node.input_buffer[i] = []
                     nod.node.s -= len(input_buffer_ind)
+                # Clear indices and allow new packets in the list.
                 self.data.empty_list = np.append(self.data.empty_list, input_buffer_ind)
 
         # Update time:
         self.t += self.dt
+
+    def make_measurement(self):
+        self.nodes['composition'] = self.nodes.apply(self.get_server_composition, axis=1)
 
     @staticmethod
     def get_output_buffer_ind(row, output_circuits):
@@ -224,6 +239,23 @@ class network:
         row['circuit'] = 5 -> returns 2
         """
         return [ind_k for ind_k, output_circuits_k in enumerate(output_circuits) if row['circuit'] in output_circuits_k][0]
+
+    @staticmethod
+    def get_server_composition(row):
+        if row['node'].output_buffer:
+            s_i = [len(buffer_i) for buffer_i in row['node'].output_buffer]
+            s_tot = sum(s_i)
+            if s_tot:
+                c = np.array(s_i)/s_tot
+            else:
+                c = np.ones(len(s_i))/len(s_i)
+        else:
+            s_tot = len(row['node'].output_buffer)
+            c = np.array([1.0])
+
+        assert s_tot == row['node'].s, "Calculation of storage memory seems flawed for node {}.".format(row['name'])
+
+        return c
 
 
 class data:
