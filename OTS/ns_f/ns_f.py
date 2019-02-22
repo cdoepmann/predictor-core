@@ -43,8 +43,8 @@ class network:
         # Connections are processed in a loop and therefore packets in the input_buffer are sorted, even though they arrive during the same time interval.
         # To have a more realistic output_buffer it is adviced to shuffle the newly processed packets before they are added.
         self.shuffle_incoming_packets = True
-        # Shuffle the order in which connections are processed in each time step.
-        self.shuffle_connection_processing = False
+
+        self.linear_growth_threshold = 10
 
     def from_circuits(self, circuits, packet_list_size=1000):
         self.connections, self.nodes = self.circ_2_network(circuits)
@@ -128,13 +128,13 @@ class network:
                 timeout_ind = list(compress(con.window, timeout_bool))
                 # Remove items from current window:
                 con.window = self.remove_from_list(con.window, timeout_ind)
-                con.window_size = max(2, int(con.window_size/2))
+                con.window_size = max(2, con.window_size/2)
 
             """ Send packages """
-            # If the last window is emptied or the current window is not completely in transit, start sending packages:
-            if not con.window or len(con.window) < con.window_size:
-                send_candidate_ind = list(set(source_buffer)-set(con.window))
-                n_send = min(con.window_size-len(con.window), len(send_candidate_ind), int(con.source.v_max*self.dt))
+            # If the current window is smaller than the allowed window size:
+            if len(con.window) < int(con.window_size):
+                send_candidate_ind = self.remove_from_list(source_buffer, con.window)
+                n_send = int(min(con.window_size-len(con.window), len(send_candidate_ind), con.source.v_max*self.dt))
                 send_ind = send_candidate_ind[:n_send]
                 # Add indices to current window:
                 con.window += send_ind
@@ -180,9 +180,14 @@ class network:
                 # Reset tr:
                 self.data.package_list.loc[replied_ind, 'tr'] = np.inf
 
-            # Adjust window_size if all packages have been successfully sent (only if packages were also received.)
-            if not con.window and any(replied_bool):
-                con.window_size = min(int(con.source.v_max*self.dt), con.window_size*2)
+            # Adjust window_size if any packages were received. Adjust window size exponentially if it is lower than the linear_growth_threshold.
+            if any(replied_bool):
+                if con.window_size < self.linear_growth_threshold:
+                    con.window_size += sum(replied_bool)
+                else:
+                    con.window_size += sum(replied_bool)/con.window_size
+                # Limited by maximum bandwith of connection:
+                con.window_size = min(con.source.v_max*self.dt, con.window_size)
 
             """ Save changes """
             con.source.output_buffer[con.source_ind] = source_buffer
