@@ -71,5 +71,6 @@ ax[1].set_xlabel('time [s]')
 plt.tight_layout()
 plt.show()
 
-ax = dat.package_list[dat.package_list['tspawn']!=np.inf].hist(by='circuit', column='ttransit', figsize=[13,5])
+fig2, ax2 = plt.subplots()
+dat.package_list[dat.package_list['tspawn']!=np.inf].hist(by='circuit', column='ttransit', figsize=[13,5], ax= ax2)
 plt.show()
