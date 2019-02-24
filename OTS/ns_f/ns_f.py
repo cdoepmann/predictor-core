@@ -27,6 +27,9 @@ class server:
             self.output_buffer.append([])
 
     def add_2_buffer(self, buffer_ind, circuit, n_packets, tnow=0):
+        if n_packets > len(self.data.empty_list):
+            n_append = max(int(self.data.numel/10),n_packets)
+            self.data.append_list(n_append)
         index, self.data.empty_list = np.split(self.data.empty_list, [n_packets])
         self.data.package_list.loc[index, 'circuit'] = circuit
         self.data.package_list.loc[index, 'tspawn'] = tnow
@@ -119,6 +122,7 @@ class network:
             node_k['node'].setup(n_in=node_k['n_in'], n_out=node_k['n_out'])
 
     def simulate(self):
+        #con_list = self.connections.iloc[np.random.permutation(len(self.connections))]
         for i, con in self.connections.iterrows():
             source_buffer = con.source.output_buffer[con.source_ind]
             target_buffer = con.target.input_buffer[con.target_ind]
@@ -221,13 +225,14 @@ class network:
                 input_buffer = self.data.package_list.loc[input_buffer_ind]
                 # Get total transmission time of received packets:
                 t_transmission = self.t - input_buffer['tspawn']
+                self.data.package_list.loc[input_buffer_ind,'ttransit'] = t_transmission
                 self.t_transmission += t_transmission.tolist()
                 # Reset input buffer:
                 for i in range(nod.node.n_in):
                     nod.node.input_buffer[i] = []
                     nod.node.s -= len(input_buffer_ind)
                 # Clear indices and allow new packets in the list.
-                self.data.empty_list = np.append(self.data.empty_list, input_buffer_ind)
+                #self.data.empty_list = np.append(self.data.empty_list, input_buffer_ind)
 
         # Update time:
         self.t += self.dt
@@ -282,8 +287,13 @@ class network:
 
 class data:
     def __init__(self, packet_list_size=1000):
-        self.package_list = pd.DataFrame([], index=range(packet_list_size), columns=['circuit', 'ts', 'tr'])
-        self.package_list['ts'] = np.inf
-        self.package_list['tr'] = np.inf
-        self.package_list['tspawn'] = np.inf  # time when the packet was created.
+        self.df_dict =  {'circuit':0,'ts': np.inf, 'tr': np.inf, 'tspawn': np.inf, 'ttransit': np.inf}
+        self.package_list = pd.DataFrame(self.df_dict, index=range(packet_list_size))
         self.empty_list = np.arange(packet_list_size)
+        self.numel = packet_list_size
+
+    def append_list(self, packet_list_size=1000):
+        package_list_append = pd.DataFrame(self.df_dict, index=range(self.numel,packet_list_size+self.numel))
+        self.package_list = pd.concat((self.package_list,package_list_append))
+        self.empty_list = np.append(self.empty_list,np.arange(self.numel,packet_list_size+self.numel))
+        self.numel += packet_list_size

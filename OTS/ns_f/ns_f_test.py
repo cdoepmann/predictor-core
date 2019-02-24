@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from ns_f import *
 
-dat = data()
+dat = data(1000)
 
 setup_dict = {}
 setup_dict['v_max'] = 2000  # packets / s
@@ -57,6 +57,7 @@ s_list = np.array(s_list)
 t = np.array(t)
 
 
+
 fig, ax = plt.subplots(1, 2, figsize=[13, 5], sharex=True)
 lines = ax[0].plot(t, s_list)
 ax[0].set_title('Buffer storage')
@@ -68,4 +69,7 @@ ax[1].legend((lines), (nw.connections.index.tolist()), title='Con #:')
 ax[1].set_title('window size')
 ax[1].set_xlabel('time [s]')
 plt.tight_layout()
+plt.show()
+
+ax = dat.package_list[dat.package_list['tspawn']!=np.inf].hist(by='circuit', column='ttransit', figsize=[13,5])
 plt.show()
