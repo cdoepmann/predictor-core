@@ -40,7 +40,7 @@ for k in range(n_steps):
         input_2.add_2_buffer(buffer_ind=0, circuit=1, n_packets=3, tnow=nw.t)
 
     s_k = nw.nodes.apply(lambda row: row['node'].s, axis=1).tolist()
-    win_size = nw.connections['window_size'].tolist()
+    win_size = nw.connections.apply(lambda row: row['prop'].window_size, axis=1).tolist()
 
     s_list.append(s_k)
     win_size_list.append(win_size)
@@ -57,7 +57,6 @@ s_list = np.array(s_list)
 t = np.array(t)
 
 
-
 fig, ax = plt.subplots(1, 2, figsize=[13, 5], sharex=True)
 lines = ax[0].plot(t, s_list)
 ax[0].set_title('Buffer storage')
@@ -72,5 +71,5 @@ plt.tight_layout()
 plt.show()
 
 fig2, ax2 = plt.subplots()
-dat.package_list[dat.package_list['tspawn']!=np.inf].hist(by='circuit', column='ttransit', figsize=[13,5], ax= ax2)
+dat.package_list[dat.package_list['tspawn'] != np.inf].hist(by='circuit', column='ttransit', figsize=[13, 5], ax=ax2)
 plt.show()

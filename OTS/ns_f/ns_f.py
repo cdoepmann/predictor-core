@@ -28,13 +28,22 @@ class server:
 
     def add_2_buffer(self, buffer_ind, circuit, n_packets, tnow=0):
         if n_packets > len(self.data.empty_list):
-            n_append = max(int(self.data.numel/10),n_packets)
+            n_append = max(int(self.data.numel/10), n_packets)
             self.data.append_list(n_append)
         index, self.data.empty_list = np.split(self.data.empty_list, [n_packets])
         self.data.package_list.loc[index, 'circuit'] = circuit
         self.data.package_list.loc[index, 'tspawn'] = tnow
         self.output_buffer[buffer_ind] += index.tolist()
         self.s += n_packets
+
+
+class connection_cls:
+    def __init__(self, latency_fun, window_size=2):
+        self.latency_fun = latency_fun
+        self.window_size = 2
+        self.window = []  # Packages currently in transit
+        self.transit = []  # Packages currently beeing processed.
+        self.transit_reply = []  # Replies for successfully received packages currently in transit
 
 
 class network:
@@ -79,20 +88,12 @@ class network:
         return con_pd, nodes_pd
 
     def analyze_connections(self):
-        self.connections['latency_fun'] = None
-        self.connections['window_size'] = None
-        self.connections['window'] = None
-        self.connections['transit'] = None
-        self.connections['transit_reply'] = None
         self.connections['source_ind'] = None
         self.connections['target_ind'] = None
+        self.connections['prop'] = None
 
         for i, con in self.connections.iterrows():
-            con['latency_fun'] = lambda t: 0.01
-            con['window_size'] = 2
-            con['window'] = []         # Packages currently in transit
-            con['transit'] = []        # Packages currently beeing processed.
-            con['transit_reply'] = []  # Replies for successfully received packages currently in transit
+            con['prop'] = connection_cls(self.latency_fun(mean=0.01), window_size=2)
 
         self.nodes['con_target'] = None
         self.nodes['n_in'] = None
@@ -128,34 +129,34 @@ class network:
             target_buffer = con.target.input_buffer[con.target_ind]
 
             """ Check for time-outs in window """
-            t_sent = self.data.package_list.loc[con.window, 'ts']
+            t_sent = self.data.package_list.loc[con.prop.window, 'ts']
             timeout_bool = t_sent + con.source.timeout <= self.t
             # Remove items from current window, and adapt the window size:
             if any(timeout_bool):
-                timeout_ind = list(compress(con.window, timeout_bool))
+                timeout_ind = list(compress(con.prop.window, timeout_bool))
                 # Remove items from current window:
-                con.window = self.remove_from_list(con.window, timeout_ind)
-                con.window_size = max(2, con.window_size/2)
+                con.prop.window = self.remove_from_list(con.prop.window, timeout_ind)
+                con.prop.window_size = max(2, con.prop.window_size/2)
 
             """ Send packages """
             # If the current window is smaller than the allowed window size:
-            if len(con.window) < int(con.window_size):
-                send_candidate_ind = self.remove_from_list(source_buffer, con.window)
-                n_send = int(min(con.window_size-len(con.window), len(send_candidate_ind), con.source.v_max*self.dt))
+            if len(con.prop.window) < int(con.prop.window_size):
+                send_candidate_ind = self.remove_from_list(source_buffer, con.prop.window)
+                n_send = int(min(con.prop.window_size-len(con.prop.window), len(send_candidate_ind), con.source.v_max*self.dt))
                 send_ind = send_candidate_ind[:n_send]
                 # Add indices to current window:
-                con.window += send_ind
+                con.prop.window += send_ind
                 # Send packages and update t_sent:
-                con.transit += send_ind
+                con.prop.transit += send_ind
                 self.data.package_list.loc[send_ind, 'ts'] = self.t
 
             """ Receive packages and send replies """
             # Receive packages, if the current time is greater than the sending time plus the connection delay.
-            t_sent = self.data.package_list.loc[con.transit, 'ts']
-            received_bool = t_sent + con.latency_fun(t_sent) <= self.t  # boolean table.
+            t_sent = self.data.package_list.loc[con.prop.transit, 'ts']
+            received_bool = t_sent + con.prop.latency_fun(t_sent) <= self.t  # boolean table.
             if any(received_bool):
                 # Packages that are candidates to enter the node:
-                received_candidate_ind = list(compress(con.transit, received_bool))
+                received_candidate_ind = list(compress(con.prop.transit, received_bool))
                 # Server cant receive packets if buffer is full:
                 n_received = min(len(received_candidate_ind), con.target.s_max-con.target.s)
                 received_ind = received_candidate_ind[:n_received]  # TODO: optional with np.random.choice()
@@ -164,37 +165,37 @@ class network:
                 con.target.s += len(received_ind)
                 # Reply that packages have been successfully sent and update the time.
                 self.data.package_list.loc[received_ind, 'tr'] = self.t
-                con.transit_reply += received_ind
+                con.prop.transit_reply += received_ind
                 # Reset ts for all received packages:
                 self.data.package_list.loc[received_ind, 'ts'] = np.inf
                 # Remove packages from transit, including those that were not accepted in the buffer.
-                con.transit = list(set(con.transit)-set(received_candidate_ind))
+                con.prop.transit = list(set(con.prop.transit)-set(received_candidate_ind))
 
             """ Receive replies """
             # Receive replies, if the current time is greater than the sending time plus the connection delay.
-            t_replied = self.data.package_list.loc[con.transit_reply, 'tr']
-            replied_bool = t_replied+con.latency_fun(t_replied) <= self.t
+            t_replied = self.data.package_list.loc[con.prop.transit_reply, 'tr']
+            replied_bool = t_replied+con.prop.latency_fun(t_replied) <= self.t
             if any(replied_bool):
-                replied_ind = list(compress(con.transit_reply, replied_bool))
+                replied_ind = list(compress(con.prop.transit_reply, replied_bool))
                 # Remove received packages from window:
-                con.window = self.remove_from_list(con.window, replied_ind)
+                con.prop.window = self.remove_from_list(con.prop.window, replied_ind)
                 # Remove received packages from source buffer:
                 source_buffer = self.remove_from_list(source_buffer, replied_ind)
                 con.source.s -= len(replied_ind)
                 # Remove received packages from transit reply:
-                con.transit_reply = self.remove_from_list(con.transit_reply, replied_ind)
+                con.prop.transit_reply = self.remove_from_list(con.prop.transit_reply, replied_ind)
 
                 # Reset tr:
                 self.data.package_list.loc[replied_ind, 'tr'] = np.inf
 
             # Adjust window_size if any packages were received. Adjust window size exponentially if it is lower than the linear_growth_threshold.
             if any(replied_bool):
-                if con.window_size < self.linear_growth_threshold:
-                    con.window_size += sum(replied_bool)
+                if con.prop.window_size < self.linear_growth_threshold:
+                    con.prop.window_size += sum(replied_bool)
                 else:
-                    con.window_size += sum(replied_bool)/con.window_size
+                    con.prop.window_size += sum(replied_bool)/con.prop.window_size
                 # Limited by maximum bandwith of connection:
-                con.window_size = min(con.source.v_max*self.dt, con.window_size)
+                con.prop.window_size = min(con.source.v_max*self.dt, con.prop.window_size)
 
             """ Save changes """
             con.source.output_buffer[con.source_ind] = source_buffer
@@ -225,7 +226,7 @@ class network:
                 input_buffer = self.data.package_list.loc[input_buffer_ind]
                 # Get total transmission time of received packets:
                 t_transmission = self.t - input_buffer['tspawn']
-                self.data.package_list.loc[input_buffer_ind,'ttransit'] = t_transmission
+                self.data.package_list.loc[input_buffer_ind, 'ttransit'] = t_transmission
                 self.t_transmission += t_transmission.tolist()
                 # Reset input buffer:
                 for i in range(nod.node.n_in):
@@ -239,6 +240,10 @@ class network:
 
     def make_measurement(self):
         self.nodes['composition'] = self.nodes.apply(self.get_server_composition, axis=1)
+
+    @staticmethod
+    def latency_fun(mean, var=0):
+        return lambda x: mean
 
     @staticmethod
     def remove_from_list(list_a, list_b):
@@ -287,13 +292,13 @@ class network:
 
 class data:
     def __init__(self, packet_list_size=1000):
-        self.df_dict =  {'circuit':0,'ts': np.inf, 'tr': np.inf, 'tspawn': np.inf, 'ttransit': np.inf}
+        self.df_dict = {'circuit': 0, 'ts': np.inf, 'tr': np.inf, 'tspawn': np.inf, 'ttransit': np.inf}
         self.package_list = pd.DataFrame(self.df_dict, index=range(packet_list_size))
         self.empty_list = np.arange(packet_list_size)
         self.numel = packet_list_size
 
     def append_list(self, packet_list_size=1000):
-        package_list_append = pd.DataFrame(self.df_dict, index=range(self.numel,packet_list_size+self.numel))
-        self.package_list = pd.concat((self.package_list,package_list_append))
-        self.empty_list = np.append(self.empty_list,np.arange(self.numel,packet_list_size+self.numel))
+        package_list_append = pd.DataFrame(self.df_dict, index=range(self.numel, packet_list_size+self.numel))
+        self.package_list = pd.concat((self.package_list, package_list_append))
+        self.empty_list = np.append(self.empty_list, np.arange(self.numel, packet_list_size+self.numel))
         self.numel += packet_list_size
