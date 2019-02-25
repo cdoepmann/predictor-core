@@ -59,6 +59,8 @@ class network:
 
         self.linear_growth_threshold = 10
 
+        self.shuffle_connection_processing = True
+
         self.t_transmission = []
 
     def from_circuits(self, circuits, packet_list_size=1000):
@@ -93,7 +95,7 @@ class network:
         self.connections['prop'] = None
 
         for i, con in self.connections.iterrows():
-            con['prop'] = connection_cls(self.latency_fun(mean=0.01), window_size=2)
+            con['prop'] = connection_cls(self.latency_fun(mean=0.1), window_size=2)
 
         self.nodes['con_target'] = None
         self.nodes['n_in'] = None
@@ -123,8 +125,12 @@ class network:
             node_k['node'].setup(n_in=node_k['n_in'], n_out=node_k['n_out'])
 
     def simulate(self):
-        #con_list = self.connections.iloc[np.random.permutation(len(self.connections))]
-        for i, con in self.connections.iterrows():
+        if self.shuffle_connection_processing:
+            con_list = self.connections.iloc[np.random.permutation(len(self.connections))]
+        else:
+            con_list = self.connections
+
+        for i, con in con_list.iterrows():
             source_buffer = con.source.output_buffer[con.source_ind]
             target_buffer = con.target.input_buffer[con.target_ind]
 
@@ -232,8 +238,6 @@ class network:
                 for i in range(nod.node.n_in):
                     nod.node.input_buffer[i] = []
                     nod.node.s -= len(input_buffer_ind)
-                # Clear indices and allow new packets in the list.
-                #self.data.empty_list = np.append(self.data.empty_list, input_buffer_ind)
 
         # Update time:
         self.t += self.dt

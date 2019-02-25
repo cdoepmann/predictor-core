@@ -5,8 +5,8 @@ from ns_f import *
 dat = data(1000)
 
 setup_dict = {}
-setup_dict['v_max'] = 2000  # packets / s
-setup_dict['s_max'] = 20  # packets
+setup_dict['v_max'] = 20000  # packets / s
+setup_dict['s_max'] = 200  # packets
 setup_dict['timeout'] = 0.5  # s
 
 input_1 = server(setup_dict, dat, name='input_1')
@@ -23,8 +23,10 @@ circuits = [
 
 nw = network(data=dat)
 nw.from_circuits(circuits)
-input_1.add_2_buffer(buffer_ind=0, circuit=0, n_packets=10)
-input_2.add_2_buffer(buffer_ind=0, circuit=1, n_packets=10)
+nw.linear_growth_threshold = 100
+
+input_1.add_2_buffer(buffer_ind=0, circuit=0, n_packets=100)
+input_2.add_2_buffer(buffer_ind=0, circuit=1, n_packets=100)
 
 
 s_list = []
@@ -35,9 +37,9 @@ n_steps = 500
 
 for k in range(n_steps):
     if k < 400 and input_1.s_max-input_1.s >= 3:
-        input_1.add_2_buffer(buffer_ind=0, circuit=0, n_packets=3, tnow=nw.t)
+        input_1.add_2_buffer(buffer_ind=0, circuit=0, n_packets=30, tnow=nw.t)
     if k < 400 and input_2.s_max-input_2.s >= 3:
-        input_2.add_2_buffer(buffer_ind=0, circuit=1, n_packets=3, tnow=nw.t)
+        input_2.add_2_buffer(buffer_ind=0, circuit=1, n_packets=30, tnow=nw.t)
 
     s_k = nw.nodes.apply(lambda row: row['node'].s, axis=1).tolist()
     win_size = nw.connections.apply(lambda row: row['prop'].window_size, axis=1).tolist()
@@ -71,5 +73,5 @@ plt.tight_layout()
 plt.show()
 
 fig2, ax2 = plt.subplots()
-dat.package_list[dat.package_list['tspawn'] != np.inf].hist(by='circuit', column='ttransit', figsize=[13, 5], ax=ax2)
+dat.package_list[dat.package_list['ttransit'] != np.inf].hist(by='circuit', column='ttransit', figsize=[13, 5], ax=ax2)
 plt.show()
