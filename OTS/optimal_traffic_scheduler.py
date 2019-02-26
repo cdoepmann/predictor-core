@@ -236,23 +236,27 @@ class optimal_traffic_scheduler:
                                    Pb.reshape((-1, 1)), Pc.reshape((-1, 1)), *bandwidth_load_target,
                                    *memory_load_target, *bandwidth_load_source, *memory_load_source)}  # parameters
 
+        pdb.set_trace()
+
         # Create casadi optimization object:
         self.optim = nlpsol('optim', 'ipopt', optim_dict)
         # Create function to calculate buffer memory from parameter and optimization variable trajectories
         self.s_buffer_fun = Function('s_buffer_fun', [s_buffer_0, s_circuit_0]+v_in_max+v_in_req+[j for i in cv_in for j in i]+v_out+[Pb, Pc],
                                      s_buffer+s_circuit+[j for i in cv_out for j in i])
 
-        pdb.set_trace()
-
-    def solve(self, s_buffer_0, v_in_buffer, bandwidth_load_target, memory_load_target):
+    def solve(self, s_buffer_0, s_circuit_0, v_in_req, cv_in, Pb, Pc, bandwidth_load_target, memory_load_target, bandwidth_load_source, memory_load_source):
         """
         Solves the optimal control problem defined in optimal_traffic_scheduler.problem_formulation().
         Inputs:
-        - s_buffer_0            : initial memory for each buffer (must be n_out_buffer x 1 vector)
+        - s_buffer_0            : initial memory for each buffer (must be n_out x 1 vector)
+        - s_circuit_0           : intitial memory for each circuit (must be np.sum(n_circuit_out) x 1 vector)
         Predicted trajectories (as lists with N_horizon elments):
-        - v_in_buffer           : Incoming package stream for each buffer (n_out_buffer x 1 vector)
-        - bandwidth_load_target : Bandwidth load of target server(s) (n_out_buffer x 1 vector)
-        - memory_load_target    : Memory load of target server(s) (n_out_buffer x 1 vector)
+        - v_in_req              : Incoming package stream for each buffer (n_in x 1 vector)
+        - cv_in_                : Composition of incoming streams. (n_in x 1 list with n_circuit_in[i] elements for list item i)
+        - bandwidth_load_target : Bandwidth load of target server(s) (n_out x 1 vector)
+        - memory_load_target    : Memory load of target server(s) (n_out x 1 vector)
+        - bandwidth_load_source : Bandwidth load of source server(s) (n_in x 1 vector)
+        - memory_load_source    : Memory load of source server(s) (n_in x 1 vector)
 
         Populates the "predict" and "record" dictonaries of the class.
         - Predict: Constantly overwritten variables that save the current optimized state and control trajectories of the node
@@ -264,11 +268,17 @@ class optimal_traffic_scheduler:
         "Solve" also advances the time of the node by one time_step.
         """
         # Get previous solution:
-        v_buffer_out_prev = self.predict[-1]['v_out_buffer']
+        pdb.set_trace()
+        v_out_prev = self.predict[-1]['v_out']
+        # From the perspecitve of the current timestep:
+        v_out_0 = v_out_prev[1:]+[v_out_prev[-1]]
+
         # Create concatented parameter vector:
-        param = np.concatenate((s_buffer_0, *v_in_buffer, *v_buffer_out_prev[1:], *bandwidth_load_target, *memory_load_target), axis=0)
+        param = np.concatenate((s_buffer_0, s_circuit_0, *v_in_req, *[j for i in cv_in for j in i], *v_out_0,
+                                Pb.reshape((-1, 1)), Pc.reshape((-1, 1)), *bandwidth_load_target,
+                                *memory_load_target, *bandwidth_load_source, *memory_load_source), axis=0)
         # Get initial condition:
-        x0 = np.concatenate(v_buffer_out_prev, axis=0)
+        x0 = np.concatenate(v_out_0, axis=0)
         # Solve optimization problem for given conditions:
         sol = self.optim(ubg=0, p=param, x0=x0)  # Note: constraints were formulated, such that cons<=0.
 
