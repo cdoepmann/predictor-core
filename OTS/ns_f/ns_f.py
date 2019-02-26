@@ -102,6 +102,7 @@ class network:
         self.nodes['con_source'] = None
         self.nodes['n_out'] = None
         self.nodes['output_circuits'] = None
+        self.nodes['input_circuits'] = None
 
         for k, node_k in self.nodes.iterrows():
             # Boolean array that indicates in which connections node_k is the source.
@@ -117,6 +118,7 @@ class network:
             # Boolean array that indicates in which connections node_k is the target. This determines the
             # number of inputs.
             node_k['con_target'] = (self.connections['target'] == node_k['node']).values
+            node_k['input_circuits'] = self.connections.loc[node_k['con_target'], 'circuit'].tolist()
             node_k['n_in'] = sum(node_k['con_target'])
 
             if any(node_k['con_target']):
