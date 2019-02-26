@@ -63,6 +63,8 @@ cv_in = [[np.array([[0.5, 0.5]]).T, np.array([[0.3, 0.3, 0.4]]).T]]*ots.N_steps
 
 v_out_prev = [np.array([[0, 0, 0]]).T]*ots.N_steps
 
+v_out_max = [np.array([[6, 6, 6]]).T]*ots.N_steps
+
 bandwidth_load_target = [np.array([[0, 0, 0]]).T]*ots.N_steps
 memory_load_target = [np.array([[0, 0, 0]]).T]*ots.N_steps
 
@@ -71,4 +73,4 @@ memory_load_source = [np.array([[0, 0]]).T]*ots.N_steps
 
 
 # Call the solver:
-ots.solve(s_buffer_0, s_circuit_0, v_in_req, cv_in, Pb, Pc, bandwidth_load_target, memory_load_target, bandwidth_load_source, memory_load_source)
+ots.solve(s_buffer_0, s_circuit_0, v_in_req, cv_in, v_out_max, Pb, Pc, bandwidth_load_target, memory_load_target, bandwidth_load_source, memory_load_source)
