@@ -54,7 +54,7 @@ Pb = np.concatenate(Pb, axis=1)
 Pc = Pc_fun(circuits_in, circuits_out)
 
 # Create some dummy data:
-s_buffer_0 = np.zeros((n_in, 1))
+s_buffer_0 = np.zeros((n_out, 1))
 s_circuit_0 = np.zeros((np.sum(n_circuit_in), 1))
 
 v_in_req = [np.array([[5, 3]]).T]*ots.N_steps
@@ -63,11 +63,11 @@ cv_in = [[np.array([[0.5, 0.5]]).T, np.array([[0.3, 0.3, 0.4]]).T]]*ots.N_steps
 
 v_out_prev = [np.array([[0, 0, 0]]).T]*ots.N_steps
 
-bandwidth_load_target = [np.array([[0]])]*ots.N_steps
-memory_load_target = [np.array([[0]])]*ots.N_steps
+bandwidth_load_target = [np.array([[0, 0, 0]]).T]*ots.N_steps
+memory_load_target = [np.array([[0, 0, 0]]).T]*ots.N_steps
 
-bandwidth_load_source = [np.array([[0]])]*ots.N_steps
-memory_load_source = [np.array([[0]])]*ots.N_steps
+bandwidth_load_source = [np.array([[0, 0]]).T]*ots.N_steps
+memory_load_source = [np.array([[0, 0]]).T]*ots.N_steps
 
 
 # Call the solver:
