@@ -397,3 +397,61 @@ class optimal_traffic_scheduler:
             split_arr = [arr[ind[i]:ind[i+1]] for i in range(len(ind)-1)]
 
         return split_arr
+
+    @ staticmethod
+    def Pb_fun(c_in, c_out, concatenate=True):
+        """ Returns the assignment matrix that determines, which element of each input is assigned to which output buffer.
+        Natively concatenates P to return on Matrix with n_out x n_circuits_in. With concatenate set to false, the staticmethod
+        returns one matrix for each input.
+
+        E.g.: 2 inputs with 3 and 2 circuits and three outputs with 2, 1 and 2 circuits each:
+
+        circuits_in = [[0, 1, 2], [3, 4]]
+        circuits_out = [[1, 3], [0], [2, 4]]
+
+        concatenate = True :
+        P = array([[0., 1., 0., 1., 0.],
+                   [1., 0., 0., 0., 0.],
+                   [0., 0., 1., 0., 1.]])
+        concatenate = False :
+        P[0] = array([[0., 1., 0.],
+                      [1., 0., 0.],
+                      [0., 0., 1.]])
+        P[1] = array([[1., 0.],
+                      [0., 0.],
+                      [0., 1.]])]
+        """
+        P = [np.zeros((len(c_out), len(c_in_i))) for c_in_i in c_in]
+
+        for i, c_in_i in enumerate(c_in):
+            for j, c_in_ij in enumerate(c_in_i):
+                k = [ind for ind, b_i in enumerate(c_out) if c_in_ij in b_i][0]
+                P[i][k, j] = 1
+        if concatenate:
+            P = np.concatenate(P, axis=1)
+        return P
+
+    @ staticmethod
+    def Pc_fun(c_in, c_out):
+        """
+        Returns the assignment Matrix to determine which input circuit is directed to which output circuit.
+        Pc is of dimension n_circuit x n_circuit.
+
+        E.g.: 2 inputs with 3 and 2 circuits and three outputs with 2, 1 and 2 circuits each:
+
+        circuits_in = [[0, 1, 2], [3, 4]]
+        circuits_out = [[1, 3], [0], [2, 4]]
+
+        Pc = array([[0., 1., 0., 0., 0.],
+                    [0., 0., 0., 1., 0.],
+                    [1., 0., 0., 0., 0.],
+                    [0., 0., 1., 0., 0.],
+                    [0., 0., 0., 0., 1.]])
+        """
+        c_in = [j for i in c_in for j in i]
+        c_out = [j for i in c_out for j in i]
+        Pc = np.zeros((len(c_out), len(c_in)))
+        for i, c_in_i in enumerate(c_in):
+            j = np.argwhere(c_in_i == np.array(c_out)).flatten()
+            Pc[j, i] = 1
+        return Pc
