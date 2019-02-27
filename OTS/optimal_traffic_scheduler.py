@@ -253,12 +253,12 @@ class optimal_traffic_scheduler:
                       'p': vertcat(s_buffer_0, s_circuit_0, *v_in_req, *v_in_max_prev, *[j for i in cv_in for j in i], *v_out_max, *v_out_prev,
                                    Pb.reshape((-1, 1)), Pc.reshape((-1, 1)), *bandwidth_load_target,
                                    *memory_load_target, *bandwidth_load_source, *memory_load_source)}  # parameters
-        pdb.set_trace()
+
         # Create casadi optimization object:
         self.optim = nlpsol('optim', 'ipopt', optim_dict)
         # Create function to calculate buffer memory from parameter and optimization variable trajectories
-        self.s_buffer_fun = Function('s_buffer_fun', [s_buffer_0, s_circuit_0]+v_in_max+v_in_req+[j for i in cv_in for j in i]+v_out+[Pb, Pc],
-                                     s_buffer+s_circuit+[j for i in cv_out for j in i])
+        self.aux_fun = Function('aux_fun', [s_buffer_0, s_circuit_0]+v_in_max+v_in_req+[j for i in cv_in for j in i]+v_out+[Pb, Pc],
+                                s_buffer+s_circuit+[j for i in cv_out for j in i])
 
     def solve(self, s_buffer_0, s_circuit_0, v_in_req, cv_in, v_out_max, Pb, Pc, bandwidth_load_target, memory_load_target, bandwidth_load_source, memory_load_source):
         """
@@ -289,7 +289,6 @@ class optimal_traffic_scheduler:
         # From the perspecitve of the current timestep:
         v_out_0 = v_out_prev[1:]+[v_out_prev[-1]]
         v_in_max_0 = v_in_max_prev[1:]+[v_in_max_prev[-1]]
-        pdb.set_trace()
         # Create concatented parameter vector:
         param = np.concatenate((s_buffer_0, s_circuit_0, *v_in_req, *v_in_max_0, *[j for i in cv_in for j in i], *v_out_max, *v_out_0,
                                 Pb.reshape((-1, 1)), Pc.reshape((-1, 1)), *bandwidth_load_target,
@@ -299,15 +298,23 @@ class optimal_traffic_scheduler:
         # Solve optimization problem for given conditions:
         optim_results = self.optim(ubg=0, p=param, x0=x0)  # Note: constraints were formulated, such that cons<=0.
 
-        pdb.set_trace()
-        # Retrieve trajectory of outgoing package streams:
-        sol = optim_results['x'].full()
-        v_out = [x[[k], :self.n_out].T for k in range(self.N_steps)]
-        v_in_max = [x[[k], self.n_out:].T for k in range(self.N_steps)]
+        # Retrieve trajectory from solution:
+        optim_sol = optim_results['x'].full()
+        v_out, v_in_max = np.split(optim_sol, [self.N_steps*self.n_out])
 
-        # Calculate trajectory of buffer memory usage:
-        s_buffer = np.concatenate(self.s_buffer_fun(*v_in_buffer, *v_out_buffer, s_buffer_0), axis=1).T
-        s_buffer = [s_buffer[[k]].T for k in range(self.N_steps)]
+        v_out = [v_out_i.reshape(-1, 1) for v_out_i in np.split(v_out, self.N_steps)]
+        v_in_max = [v_in_max_i.reshape(-1, 1) for v_in_max_i in np.split(v_in_max, self.N_steps)]
+
+        # Calculate additional trajectories:
+        aux_values = self.aux_fun(s_buffer_0, s_circuit_0, *v_in_max, *v_in_req, *[j for i in cv_in for j in i], *v_out, Pb, Pc)
+        aux_values = [aux_i.full() for aux_i in aux_values]
+        pdb.set_trace()
+        #s_buffer+s_circuit+[j for i in cv_out for j in i]
+        s_buffer, s_circuit, cv_out = self.split_list(aux_values, [self.N_steps, 2*self.N_steps])
+        cv_out = self.split_list(cv_out, self.n_out)
+
+        # s_buffer = np.concatenate(self.s_buffer_fun(*v_in_buffer, *v_out_buffer, s_buffer_0), axis=1).T
+        # s_buffer = [s_buffer[[k]].T for k in range(self.N_steps)]
 
         # Calculate trajectory for bandwidth and memory:
         bandwidth_load_node = [(np.sum(v_out_k, keepdims=True)+np.sum(v_in_k, keepdims=True))/self.v_max for v_out_k,
@@ -349,7 +356,7 @@ class optimal_traffic_scheduler:
         t_in = self.dt*np.arange(-1, self.N_steps).reshape(-1, 1, 1)+input_delay.reshape(1, -1, 1)
         # At these times the values will be interpolated:
         t_interp_in = self.dt*np.arange(self.N_steps).reshape(-1, 1, 1)+np.zeros((1, v_in_circuit_ext.shape[1], 1))
-        v_in_circuit_interp = interpol_nd(t_in, v_in_circuit_ext, t_interp_in)
+        v_in_circuit_interp = self.interpol_nd(t_in, v_in_circuit_ext, t_interp_in)
 
         # Bandwidth and memory load of receiving servers are treated differently. Again, we are looking at "old" information,
         # but now we also need to take into accound that the actions at the current node influence the receiving nodes in the
@@ -362,8 +369,8 @@ class optimal_traffic_scheduler:
         # The time at which the current action will affect the receiving server:
         t_interp_out = self.dt*np.arange(self.N_steps).reshape(-1, 1, 1)+output_delay.reshape(1, -1, 1)  # (0+d, 1+d, 2+d ... , N+d)
 
-        bandwidth_load_target_interp = interpol_nd(t_out, bandwidth_load_target_ext, t_interp_out)
-        memory_load_target_interp = interpol_nd(t_out, memory_load_target_ext, t_interp_out)
+        bandwidth_load_target_interp = self.interpol_nd(t_out, bandwidth_load_target_ext, t_interp_out)
+        memory_load_target_interp = self.interpol_nd(t_out, memory_load_target_ext, t_interp_out)
 
         return v_in_circuit_interp, bandwidth_load_target_interp, memory_load_target_interp
 
@@ -401,16 +408,34 @@ class optimal_traffic_scheduler:
             self.record['v_in_circuit'].append(v_in_circuit[0])
             self.record['s_circuit'].append(s_circuit[0])
 
+    @staticmethod
+    def interpol_nd(x, y, x_new, axis=0):
+        """
+        Very simple and fast interpolation of a function y=f(x) where x and x_new are ordered sequences and the following is true:
+        x[k]<= x_new[k] <= x[k+1] for all k=0, ..., len(x_new)
+        Sequence data is supplied in axis=axis (default = 0).
+        """
 
-def interpol_nd(x, y, x_new, axis=0):
-    """
-    Very simple and fast interpolation of a function y=f(x) where x and x_new are ordered sequences and the following is true:
-    x[k]<= x_new[k] <= x[k+1] for all k=0, ..., len(x_new)
-    Sequence data is supplied in axis=axis (default = 0).
-    """
+        dx = np.diff(x, axis=axis)
+        dy = np.diff(y, axis=axis)
+        y = np.delete(y, -1, axis=axis)
+        x = np.delete(x, -1, axis=axis)
+        return y+dy/dx*(x_new-x)
 
-    dx = np.diff(x, axis=axis)
-    dy = np.diff(y, axis=axis)
-    y = np.delete(y, -1, axis=axis)
-    x = np.delete(x, -1, axis=axis)
-    return y+dy/dx*(x_new-x)
+    @staticmethod
+    def split_list(arr, ind):
+        """ Splits list into multiple sub-lists. Mimics numpy.split.
+        Parameters:
+        - arr: list with n elements.
+        - ind: Either integer index or list of integer indices. When
+          - integer: Split list in N equal lists of lenght ind. Raise error if list cant be split into sections of equal length.
+          - list   : Split list at indices of ind. Such that, e.g: ind=[2,3] -> list[:2], list[2:3], list[3:]
+        """
+        if type(ind) == int:
+            assert np.mod(len(arr), ind) == 0, "List of length {0} can't be split into {1} "
+            split_arr = [arr[ind*i:ind*(i+1)] for i in range(len(arr)//ind)]
+        if type(ind) == list or type(ind) == tuple:
+            ind = [0]+ind+[len(arr)]
+            split_arr = [arr[ind[i]:ind[i+1]] for i in range(len(ind)-1)]
+
+        return split_arr
