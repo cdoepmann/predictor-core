@@ -151,8 +151,8 @@ class optimal_traffic_scheduler:
         cons = vertcat(*cons)
         # Maximize bandwidth  and maximize buffer:(under consideration of outgoing server load)
         # Note that 0<bandwidth_load_target<1 and memory_load_target is normalized by s_max but can exceed 1.
-        obj = sum1(((1-bandwidth_load_target)/fmax(memory_load_target, 1))*(-v_out/self.v_max+s_buffer/self.s_max))
-        obj += sum1(((1-bandwidth_load_source)/fmax(memory_load_source, 1))*(-v_in_req/self.v_max))
+        obj = sum1((1-bandwidth_load_target)*(1-memory_load_target)*(-v_out/self.v_max+s_buffer/self.s_max))
+        obj += sum1(bandwidth_load_source*memory_load_source*(-v_in_req/self.v_max))
         obj += self.v_delta_penalty*(sum1(((v_out-v_out_prev)/self.v_max)**2)+sum1(((v_in_max-v_in_max_prev)/self.v_max)**2))
 
         """ Problem dictionary """
@@ -300,7 +300,7 @@ class optimal_traffic_scheduler:
         # Calculate additional trajectories:
         aux_values = self.aux_fun(s_buffer_0, s_circuit_0, *v_in_max, *v_in_req, *[j for i in cv_in for j in i], *v_out, Pb, Pc)
         aux_values = [aux_i.full() for aux_i in aux_values]
-        #s_buffer+s_circuit+[j for i in cv_out for j in i]
+        # s_buffer+s_circuit+[j for i in cv_out for j in i]
         s_buffer, s_circuit, cv_out = self.split_list(aux_values, [self.N_steps, 2*self.N_steps])
         cv_out = self.split_list(cv_out, self.n_out)
         v_in = [np.minimum(v_in_req_i, v_in_max_i) for v_in_req_i, v_in_max_i in zip(v_in_req, v_in_max)]
@@ -334,7 +334,6 @@ class optimal_traffic_scheduler:
             self.record['time'].append(np.copy(self.time))
             for key, val in self.predict[-1].items():
                 self.record[key].append(val[0])
-        return self.predict
 
     def latency_adaption(self, v_in_circuit, bandwidth_load_target, memory_load_target, input_delay, output_delay):
         """
@@ -434,7 +433,7 @@ class optimal_traffic_scheduler:
     @ staticmethod
     def Pc_fun(c_in, c_out):
         """
-        Returns the assignment Matrix to determine which input circuit is directed to which output circuit.
+        Returns the assignment matrix to determine which input circuit is directed to which output circuit.
         Pc is of dimension n_circuit x n_circuit.
 
         E.g.: 2 inputs with 3 and 2 circuits and three outputs with 2, 1 and 2 circuits each:
