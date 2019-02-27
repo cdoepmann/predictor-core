@@ -45,6 +45,7 @@ class optimal_traffic_scheduler:
         v_out_max = [np.zeros((self.n_out, 1))]*self.N_steps
         cv_out = [[np.zeros((n_circuit_out_i, 1)) for n_circuit_out_i in self.n_circuit_out]]*self.N_steps
         v_in = [np.zeros((self.n_in, 1))]*self.N_steps
+        v_in_req = [np.zeros((self.n_in, 1))]*self.N_steps
         v_in_max = [np.zeros((self.n_in, 1))]*self.N_steps
         cv_in = [[np.zeros((n_circuit_in_i, 1)) for n_circuit_in_i in self.n_circuit_in]]*self.N_steps
         s_buffer = [np.zeros((self.n_out, 1))]*self.N_steps
@@ -61,6 +62,7 @@ class optimal_traffic_scheduler:
         self.predict[0]['v_out_max'] = v_out_max
         self.predict[0]['cv_out'] = cv_out
         self.predict[0]['v_in'] = v_in
+        self.predict[0]['v_in_req'] = v_in_req
         self.predict[0]['v_in_max'] = v_in_max
         self.predict[0]['cv_in'] = cv_in
         self.predict[0]['s_buffer'] = s_buffer
@@ -73,20 +75,11 @@ class optimal_traffic_scheduler:
         self.predict[0]['memory_load_source'] = memory_load_source
 
     def initialize_record(self):
-        # TODO : Save initial condition (especially for s)
-        # NOTE: We are distinguishing between 'circuit' and 'buffer' for the memory, the input and the output.
-        # Why? Each connected server node may carry multiple circuits. We keep track of them individually, to forward relevant predictions to
-        # downstream nodes. This allows these nodes to predict where future packages will be directed. However, it is neiter feasible nor necessary
-        # to regard circuits individually within a node. First of all, circuits do not persists, while connections do and second of all the number of circuits
-        # is by orders of magnitude greater than the number of connections. The first reason would require to reformulate the optimization problem repeatedly,
-        # while the second would increase the computation time. Lastly, it is not in our hand to influence the composition (with regards to circuits) of the output buffers
-        # for the node. We can only manipulate the number of packages sent from each individual buffer and depending on the composition this will result in different amounts
-        # of packages for each circuit.
-        self.record = {'time': [], 'v_in': [], 'v_in_max': [], 'v_out': [], 'v_out_max': [], 'cv_in': [], 'cv_out': [],
-                       's_circuit': [], 's_buffer': [], 'bandwidth_load': [], 'memory_load': [],
-                       'bandwidth_load_target': [], 'memory_load_target': [], 'bandwidth_load_source': [], 'memory_load_source': []}
+        self.record = {}
+        self.record['time'] = []
         # Set the first element of the predicted values as the first element of the recorded values.
         for predict_key in self.predict[0].keys():
+            self.record[predict_key] = []
             self.record[predict_key].append(self.predict[0][predict_key][0])
 
     def problem_formulation(self):
@@ -151,7 +144,6 @@ class optimal_traffic_scheduler:
             # maximum bandwidth cant be exceeded
             sum1(v_in)+sum1(v_out) - self.v_max,
             -s_buffer,  # buffer memory cant be <0 (for each output buffer)
-            # -sc_next,  # circuit memory cant be <0 (for each circuit), note that mpc_problem['cons'] needs more inputs when used.
             -v_out,  # outgoing package stream cant be negative
             v_in_max-self.v_max,  # v_in_max cant be greater than self.v_max.
             v_out-v_out_max  # v_out cant be greater than v_out_max
@@ -267,8 +259,8 @@ class optimal_traffic_scheduler:
         - s_buffer_0            : initial memory for each buffer (must be n_out x 1 vector)
         - s_circuit_0           : intitial memory for each circuit (must be np.sum(n_circuit_out) x 1 vector)
         Predicted trajectories (as lists with N_horizon elments):
-        - v_in_req              : Incoming package stream for each buffer (n_in x 1 vector)
-        - cv_in_                : Composition of incoming streams. (n_in x 1 list with n_circuit_in[i] elements for list item i)
+        - v_in_req              : Requested incoming package stream for each buffer (n_in x 1 vector)
+        - cv_in                : Composition of incoming streams. (n_in x 1 list with n_circuit_in[i] elements for list item i)
         - bandwidth_load_target : Bandwidth load of target server(s) (n_out x 1 vector)
         - memory_load_target    : Memory load of target server(s) (n_out x 1 vector)
         - bandwidth_load_source : Bandwidth load of source server(s) (n_in x 1 vector)
@@ -308,40 +300,40 @@ class optimal_traffic_scheduler:
         # Calculate additional trajectories:
         aux_values = self.aux_fun(s_buffer_0, s_circuit_0, *v_in_max, *v_in_req, *[j for i in cv_in for j in i], *v_out, Pb, Pc)
         aux_values = [aux_i.full() for aux_i in aux_values]
-        pdb.set_trace()
         #s_buffer+s_circuit+[j for i in cv_out for j in i]
         s_buffer, s_circuit, cv_out = self.split_list(aux_values, [self.N_steps, 2*self.N_steps])
         cv_out = self.split_list(cv_out, self.n_out)
-
-        # s_buffer = np.concatenate(self.s_buffer_fun(*v_in_buffer, *v_out_buffer, s_buffer_0), axis=1).T
-        # s_buffer = [s_buffer[[k]].T for k in range(self.N_steps)]
+        v_in = [np.minimum(v_in_req_i, v_in_max_i) for v_in_req_i, v_in_max_i in zip(v_in_req, v_in_max)]
 
         # Calculate trajectory for bandwidth and memory:
-        bandwidth_load_node = [(np.sum(v_out_k, keepdims=True)+np.sum(v_in_k, keepdims=True))/self.v_max for v_out_k,
-                               v_in_k in zip(v_out_buffer, v_in_buffer)]
+        bandwidth_load_node = [(np.sum(v_out_i, keepdims=True)+np.sum(v_in_i, keepdims=True))/self.v_max for v_out_i,
+                               v_in_i in zip(v_out, v_in)]
 
-        memory_load_node = [np.sum(s_k, keepdims=True)/self.s_max for s_k in s_buffer]
+        memory_load_node = [np.sum(s_buffer_i, keepdims=True)/self.s_max for s_buffer_i in s_buffer]
 
         self.time += self.dt
 
         self.predict.append({})
-        self.predict[-1]['v_in_buffer'] = v_in_buffer
-        self.predict[-1]['v_out_buffer'] = v_out_buffer
+        self.predict[-1]['v_in'] = v_in
+        self.predict[-1]['v_in_max'] = v_in_max
+        self.predict[-1]['v_in_req'] = v_in_req
+        self.predict[-1]['cv_in'] = cv_in
+        self.predict[-1]['v_out'] = v_out
+        self.predict[-1]['v_out_max'] = v_out_max
+        self.predict[-1]['cv_out'] = cv_out
         self.predict[-1]['s_buffer'] = s_buffer
+        self.predict[-1]['s_circuit'] = s_circuit
         self.predict[-1]['bandwidth_load'] = bandwidth_load_node
         self.predict[-1]['memory_load'] = memory_load_node
         self.predict[-1]['bandwidth_load_target'] = np.copy(bandwidth_load_target)
         self.predict[-1]['memory_load_target'] = np.copy(memory_load_target)
+        self.predict[-1]['bandwidth_load_source'] = np.copy(bandwidth_load_source)
+        self.predict[-1]['memory_load_source'] = np.copy(memory_load_source)
 
         if self.record_values:
             self.record['time'].append(np.copy(self.time))
-            self.record['v_in_buffer'].append(v_in_buffer[0])
-            self.record['v_out_buffer'].append(v_out_buffer[0])
-            self.record['s_buffer'].append(s_buffer[0])
-            self.record['bandwidth_load'].append(bandwidth_load_node[0])
-            self.record['memory_load'].append(memory_load_node[0])
-            self.record['bandwidth_load_target'].append(bandwidth_load_target[0])
-            self.record['memory_load_target'].append(memory_load_target[0])
+            for key, val in self.predict[-1].items():
+                self.record[key].append(val[0])
         return self.predict
 
     def latency_adaption(self, v_in_circuit, bandwidth_load_target, memory_load_target, input_delay, output_delay):
@@ -373,40 +365,6 @@ class optimal_traffic_scheduler:
         memory_load_target_interp = self.interpol_nd(t_out, memory_load_target_ext, t_interp_out)
 
         return v_in_circuit_interp, bandwidth_load_target_interp, memory_load_target_interp
-
-    def simulate_circuits(self, output_partition):
-        v_in_circuit = self.predict[-1]['v_in_circuit']
-        v_out_buffer = self.predict[-1]['v_out_buffer']
-        s_buffer = self.predict[-1]['s_buffer']
-        s_buffer_0 = self.record['s_buffer'][-2]
-        s_circuit_0 = self.record['s_circuit'][-1]
-        v_out_circuit = []
-        s_circuit = []
-        for k in range(self.N_steps):
-            if k == 0:
-                s_circuit_k = s_circuit_0
-                s_buffer_k = s_buffer_0
-            else:
-                s_circuit_k = s_circuit[k-1]
-                s_buffer_k = s_buffer[k-1]
-
-            # s_circuit_k_tilde is the storage for each circuit at time k, that includes the package stream that entered the node at time k.
-            # This is important, because these packages are already allowed to leave the node again. To protect the following devision, it cannot be 0.
-            s_circuit_k_tilde = np.maximum(s_circuit_k + v_in_circuit[k], self.s_max*1e-6)
-            # Calculate the outgoing package stream for each circuit. Each element of v_out_buffer carries multiple circuits.
-            # We calculate the composition of v_out_buffer based on s_circuit_k_tilde and s_buffer_k=output_partition@s_circuit_k_tilde.
-            v_out_circuit_k = s_circuit_k_tilde*(output_partition.T@(v_out_buffer[k]/(output_partition@s_circuit_k_tilde)))
-            v_out_circuit.append(np.maximum(v_out_circuit_k, 0))
-            # With v_out_circuit we calculate the sequence of s_circuit.
-            s_circuit_k_new = s_circuit_k+v_in_circuit[k]-v_out_circuit[k]
-            s_circuit.append(s_circuit_k_new)
-
-        self.predict[-1]['v_out_circuit'] = v_out_circuit
-        self.predict[-1]['s_circuit'] = s_circuit
-        if self.record_values:
-            self.record['v_out_circuit'].append(v_out_circuit[0])
-            self.record['v_in_circuit'].append(v_in_circuit[0])
-            self.record['s_circuit'].append(s_circuit[0])
 
     @staticmethod
     def interpol_nd(x, y, x_new, axis=0):
