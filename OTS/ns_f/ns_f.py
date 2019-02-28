@@ -3,6 +3,9 @@ import pandas as pd
 import pdb
 from itertools import compress
 from sklearn.utils import shuffle
+import sys
+sys.path.insert(0, '../')
+from optimal_traffic_scheduler import optimal_traffic_scheduler, ots_client
 
 
 class server:
@@ -13,6 +16,7 @@ class server:
         self.v_max = setup_dict['v_max']
         self.timeout = setup_dict['timeout']
         self.s = 0
+        self.control_mode = 'tcp'
 
     def setup(self, n_in, n_out):
         self.n_in = n_in
@@ -25,6 +29,20 @@ class server:
         self.output_buffer = []
         for i in range(self.n_out):
             self.output_buffer.append([])
+
+    def set_ots(self, dt_ots, N_steps, weights):
+        ots_setup = {}
+        ots_setup['v_max'] = self.v_max
+        ots_setup['s_max'] = self.s_max
+        ots_setup['dt'] = dt_ots
+        ots_setup['N_steps'] = N_steps
+        ots_setup['weights'] = weights
+        self.ots = optimal_traffic_scheduler(ots_setup)
+        self.control_mode = 'ots'
+
+    def set_ots_client(self, dt_ots, N_steps):
+        self.ots = ots_client()
+        self.control_mode = 'ots'
 
     def add_2_buffer(self, buffer_ind, circuit, n_packets, tnow=0):
         if n_packets > len(self.data.empty_list):
@@ -102,7 +120,9 @@ class network:
         self.nodes['con_source'] = None
         self.nodes['n_out'] = None
         self.nodes['output_circuits'] = None
+        self.nodes['n_circuit_in'] = None
         self.nodes['input_circuits'] = None
+        self.nodes['n_circuit_out'] = None
 
         for k, node_k in self.nodes.iterrows():
             # Boolean array that indicates in which connections node_k is the source.
@@ -114,11 +134,13 @@ class network:
                 self.connections.loc[node_k['con_source'], 'source_ind'] = np.arange(node_k['n_out'], dtype='int16').tolist()
                 # A list item for each output_buffer that contains the circuits that are in this buffer:
                 node_k['output_circuits'] = self.connections.loc[node_k['con_source'], 'circuit'].tolist()
+                node_k['n_circuit_out'] = [len(c_i) for c_i in node_k['output_circuits']]
 
             # Boolean array that indicates in which connections node_k is the target. This determines the
             # number of inputs.
             node_k['con_target'] = (self.connections['target'] == node_k['node']).values
             node_k['input_circuits'] = self.connections.loc[node_k['con_target'], 'circuit'].tolist()
+            node_k['n_circuit_in'] = [len(c_i) for c_i in node_k['input_circuits']]
             node_k['n_in'] = sum(node_k['con_target'])
 
             if any(node_k['con_target']):
@@ -246,6 +268,14 @@ class network:
 
     def make_measurement(self):
         self.nodes['composition'] = self.nodes.apply(self.get_server_composition, axis=1)
+
+        """ Optimal traffic scheduler methods: """
+
+    def setup_ots(self):
+        """
+        Apply the .setup((n_in, n_out, n_circuit_in, n_circuit_out)) method for each ots object assigned to the servers.
+        """
+        self.nodes.apply(lambda row: row['node'].ots.setup(row['n_in'], row['n_out'], row['n_circuit_in'], row['n_circuit_out']), axis=1)
 
     @staticmethod
     def latency_fun(mean, var=0):

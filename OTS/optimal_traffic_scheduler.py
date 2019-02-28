@@ -454,3 +454,11 @@ class optimal_traffic_scheduler:
             j = np.argwhere(c_in_i == np.array(c_out)).flatten()
             Pc[j, i] = 1
         return Pc
+
+
+class ots_client:
+    def __init__(self):
+        None
+
+    def setup(self, *vargs):
+        None

@@ -8,7 +8,7 @@ setup_dict['v_max'] = 20  # packets / s
 setup_dict['s_max'] = 30  # packets
 setup_dict['dt'] = 1  # s
 setup_dict['N_steps'] = 20
-setup_dict['v_delta_penalty'] = 1.41
+setup_dict['weights'] = {'control_delta': 1.41, 'send': 1, 'store': 1, 'receive': 10}
 
 ots = optimal_traffic_scheduler(setup_dict)
 
