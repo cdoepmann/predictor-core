@@ -16,18 +16,22 @@ class optimal_traffic_scheduler:
         self.record_values = record_values
         self.time = np.array([[0]])  # 1,1 array for consistency.
 
-    def setup(self, n_in=None, n_out=None, n_circuit_in=None, n_circuit_out=None):
+    def setup(self, n_in=None, n_out=None, circuits_in=None, circuits_out=None):
         """
         n_in: Number of Inputs
         n_out: Number of outputs
-        n_circuit_in: List with number of circuits per input (len(n_circuit_in)=n_in)
-        n_circuit_out: List with number of circuits per input (len(n_circuit_out)=n_out)
+        circuits_in: List with each item being a list of identifiers for the input circuits
+        circuits_in: List with each item being a list of identifiers for the output circuits
         """
 
         self.n_in = n_in
         self.n_out = n_out
-        self.n_circuit_in = n_circuit_in
-        self.n_circuit_out = n_circuit_out
+
+        self.n_circuit_in = [len(c_i) for c_i in circuits_in]
+        self.n_circuit_out = [len(c_i) for c_i in circuits_out]
+
+        self.Pb = self.Pb_fun(circuits_in, circuits_out)
+        self.Pc = self.Pc_fun(circuits_in, circuits_out)
 
         assert len(self.n_circuit_in) == self.n_in
         assert len(self.n_circuit_out) == self.n_out
@@ -252,7 +256,7 @@ class optimal_traffic_scheduler:
         self.aux_fun = Function('aux_fun', [s_buffer_0, s_circuit_0]+v_in_max+v_in_req+[j for i in cv_in for j in i]+v_out+[Pb, Pc],
                                 s_buffer+s_circuit+[j for i in cv_out for j in i])
 
-    def solve(self, s_buffer_0, s_circuit_0, v_in_req, cv_in, v_out_max, Pb, Pc, bandwidth_load_target, memory_load_target, bandwidth_load_source, memory_load_source):
+    def solve(self, s_buffer_0, s_circuit_0, v_in_req, cv_in, v_out_max, bandwidth_load_target, memory_load_target, bandwidth_load_source, memory_load_source):
         """
         Solves the optimal control problem defined in optimal_traffic_scheduler.problem_formulation().
         Inputs:
@@ -283,7 +287,7 @@ class optimal_traffic_scheduler:
         v_in_max_0 = v_in_max_prev[1:]+[v_in_max_prev[-1]]
         # Create concatented parameter vector:
         param = np.concatenate((s_buffer_0, s_circuit_0, *v_in_req, *v_in_max_0, *[j for i in cv_in for j in i], *v_out_max, *v_out_0,
-                                Pb.reshape((-1, 1)), Pc.reshape((-1, 1)), *bandwidth_load_target,
+                                self.Pb.reshape((-1, 1)), self.Pc.reshape((-1, 1)), *bandwidth_load_target,
                                 *memory_load_target, *bandwidth_load_source, *memory_load_source), axis=0)
         # Get initial condition:
         x0 = np.concatenate(v_out_0+v_in_max_0, axis=0)
@@ -298,7 +302,7 @@ class optimal_traffic_scheduler:
         v_in_max = [v_in_max_i.reshape(-1, 1) for v_in_max_i in np.split(v_in_max, self.N_steps)]
 
         # Calculate additional trajectories:
-        aux_values = self.aux_fun(s_buffer_0, s_circuit_0, *v_in_max, *v_in_req, *[j for i in cv_in for j in i], *v_out, Pb, Pc)
+        aux_values = self.aux_fun(s_buffer_0, s_circuit_0, *v_in_max, *v_in_req, *[j for i in cv_in for j in i], *v_out, self.Pb, self.Pc)
         aux_values = [aux_i.full() for aux_i in aux_values]
         # s_buffer+s_circuit+[j for i in cv_out for j in i]
         s_buffer, s_circuit, cv_out = self.split_list(aux_values, [self.N_steps, 2*self.N_steps])

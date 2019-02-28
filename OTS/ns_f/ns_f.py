@@ -120,9 +120,7 @@ class network:
         self.nodes['con_source'] = None
         self.nodes['n_out'] = None
         self.nodes['output_circuits'] = None
-        self.nodes['n_circuit_in'] = None
         self.nodes['input_circuits'] = None
-        self.nodes['n_circuit_out'] = None
 
         for k, node_k in self.nodes.iterrows():
             # Boolean array that indicates in which connections node_k is the source.
@@ -134,13 +132,11 @@ class network:
                 self.connections.loc[node_k['con_source'], 'source_ind'] = np.arange(node_k['n_out'], dtype='int16').tolist()
                 # A list item for each output_buffer that contains the circuits that are in this buffer:
                 node_k['output_circuits'] = self.connections.loc[node_k['con_source'], 'circuit'].tolist()
-                node_k['n_circuit_out'] = [len(c_i) for c_i in node_k['output_circuits']]
 
             # Boolean array that indicates in which connections node_k is the target. This determines the
             # number of inputs.
             node_k['con_target'] = (self.connections['target'] == node_k['node']).values
             node_k['input_circuits'] = self.connections.loc[node_k['con_target'], 'circuit'].tolist()
-            node_k['n_circuit_in'] = [len(c_i) for c_i in node_k['input_circuits']]
             node_k['n_in'] = sum(node_k['con_target'])
 
             if any(node_k['con_target']):
