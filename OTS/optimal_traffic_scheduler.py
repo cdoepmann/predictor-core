@@ -12,7 +12,7 @@ class optimal_traffic_scheduler:
         self.s_max = setup_dict['s_max']
         self.dt = setup_dict['dt']
         self.N_steps = setup_dict['N_steps']
-        self.v_delta_penalty = setup_dict['v_delta_penalty']
+        self.weights = setup_dict['weights']
         self.record_values = record_values
         self.time = np.array([[0]])  # 1,1 array for consistency.
 
@@ -151,9 +151,9 @@ class optimal_traffic_scheduler:
         cons = vertcat(*cons)
         # Maximize bandwidth  and maximize buffer:(under consideration of outgoing server load)
         # Note that 0<bandwidth_load_target<1 and memory_load_target is normalized by s_max but can exceed 1.
-        obj = sum1((1-bandwidth_load_target)*(1-memory_load_target)*(-v_out/self.v_max+s_buffer/self.s_max))
-        obj += sum1(bandwidth_load_source*memory_load_source*(-v_in_req/self.v_max))
-        obj += self.v_delta_penalty*(sum1(((v_out-v_out_prev)/self.v_max)**2)+sum1(((v_in_max-v_in_max_prev)/self.v_max)**2))
+        obj = sum1((1-bandwidth_load_target)*(1-memory_load_target)*(-self.weights['send']*v_out/self.v_max+self.weights['store']*s_buffer/self.s_max))
+        obj += sum1((1+bandwidth_load_source*memory_load_source)*(-self.weights['receive']*v_in_max/self.v_max))
+        obj += self.weights['control_delta']*(sum1(((v_out-v_out_prev)/self.v_max)**2)+sum1(((v_in_max-v_in_max_prev)/self.v_max)**2))
 
         """ Problem dictionary """
         mpc_problem = {}
