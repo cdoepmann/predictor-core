@@ -37,11 +37,16 @@ class server:
         ots_setup['dt'] = dt_ots
         ots_setup['N_steps'] = N_steps
         ots_setup['weights'] = weights
-        self.ots = optimal_traffic_scheduler(ots_setup)
+        self.ots = optimal_traffic_scheduler(ots_setup, name='ots_'+self.obj_name, record_values=True)
         self.control_mode = 'ots'
 
     def set_ots_client(self, dt_ots, N_steps):
-        self.ots = ots_client()
+        client_setup = {}
+        client_setup['v_max'] = self.v_max
+        client_setup['s_max'] = self.s_max
+        client_setup['dt'] = dt_ots
+        client_setup['N_steps'] = N_steps
+        self.ots = ots_client(client_setup, name='ots_client_'+self.obj_name)
         self.control_mode = 'ots'
 
     def add_2_buffer(self, buffer_ind, circuit, n_packets, tnow=0):
@@ -262,16 +267,34 @@ class network:
         # Update time:
         self.t += self.dt
 
-    def make_measurement(self):
-        self.nodes['composition'] = self.nodes.apply(self.get_server_composition, axis=1)
+    def run_ots(self):
+        """
+         a) Determine associated properties for every connection that are determined by the source and target:
+        """
+        # Packet stream is depending on the source. Create [N_timesteps x n_outputs x 1] array (with np.stack())
+        # and access the element that is stored in 'output_ind' for each connection.
+        self.connections['v_con'] = self.connections.apply(lambda row: np.stack(row['source'].ots.predict[-1]['v_out'])[:, [row['source_ind']], :], axis=1)
+        self.connections['c_con'] = self.connections.apply(lambda row: np.stack(row['source'].ots.predict[-1]['cv_out'])[:, [row['source_ind']], :], axis=1)
+        # Allowed packet stream is determinded by the target:
+        self.connections['v_max'] = self.connections.apply(lambda row: np.stack(row['target'].ots.predict[-1]['v_in_max'])[:, [row['target_ind']], :], axis=1)
+        # Create [N_timesteps x n_outputs x 1] array (with np.stack()).
+        # Note that each server only has one value for bandwidth and memory load.
+        self.connections['bandwidth_load_target'] = self.connections.apply(lambda row: np.stack(row['target'].ots.predict[-1]['bandwidth_load']), axis=1)
+        self.connections['memory_load_target'] = self.connections.apply(lambda row: np.stack(row['target'].ots.predict[-1]['memory_load']), axis=1)
+        self.connections['bandwidth_load_source'] = self.connections.apply(lambda row: np.stack(row['source'].ots.predict[-1]['bandwidth_load']), axis=1)
+        self.connections['memory_load_source'] = self.connections.apply(lambda row: np.stack(row['source'].ots.predict[-1]['memory_load']), axis=1)
 
-        """ Optimal traffic scheduler methods: """
+    def make_measurement(self):
+        self.nodes['s_circuit'] = self.nodes.apply(self.get_circuit_size, axis=1)
+        self.nodes['s_buffer'] = self.nodes.apply(self.get_buffer_size, axis=1)
+
+    """ Optimal traffic scheduler methods: """
 
     def setup_ots(self):
         """
-        Apply the .setup((n_in, n_out, n_circuit_in, n_circuit_out)) method for each ots object assigned to the servers.
+        Apply the .setup((n_in, n_out, circuits_in, circuits_ou)) method for each ots object assigned to the servers.
         """
-        self.nodes.apply(lambda row: row['node'].ots.setup(row['n_in'], row['n_out'], row['n_circuit_in'], row['n_circuit_out']), axis=1)
+        self.nodes.apply(lambda row: row['node'].ots.setup(row['n_in'], row['n_out'], row['input_circuits'], row['output_circuits']), axis=1)
 
     @staticmethod
     def latency_fun(mean, var=0):
@@ -305,21 +328,28 @@ class network:
         return [ind_k for ind_k, output_circuits_k in enumerate(output_circuits) if row['circuit'] in output_circuits_k][0]
 
     @staticmethod
-    def get_server_composition(row):
+    def get_buffer_size(row):
         if row['node'].output_buffer:
-            s_i = [len(buffer_i) for buffer_i in row['node'].output_buffer]
-            s_tot = sum(s_i)
-            if s_tot:
-                c = np.array(s_i)/s_tot
-            else:
-                c = np.ones(len(s_i))/len(s_i)
+            sb = [len(buffer_i) for buffer_i in row['node'].output_buffer]
         else:
-            s_tot = len(row['node'].output_buffer)
-            c = np.array([1.0])
+            sb = len(row['node'].output_buffer)
 
-        assert s_tot == row['node'].s, "Calculation of storage memory seems flawed for node {}.".format(row['name'])
+        return sb
 
-        return c
+    @staticmethod
+    def get_circuit_size(row):
+        if row['node'].output_buffer:
+            output_buffer_concat = np.concatenate(row['node'].output_buffer)
+        else:
+            output_buffer_concat = []
+
+        if row['output_circuits'] is not None:
+            packets_per_circuit = dat.packet_list.loc[output_buffer_concat, ['circuit']].groupby('circuit').size()
+            sc = [[packets_per_circuit[output_i_circuits_j] for output_i_circuits_j in output_i_circuits if output_i_circuits_j in packets_per_circuit] for output_i_circuits in row['output_circuits']]
+        else:
+            sc = []
+
+        return sc
 
 
 class data:
