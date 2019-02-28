@@ -16,22 +16,22 @@ class optimal_traffic_scheduler:
         self.record_values = record_values
         self.time = np.array([[0]])  # 1,1 array for consistency.
 
-    def setup(self, n_in=None, n_out=None, circuits_in=None, circuits_out=None):
+    def setup(self, n_in=None, n_out=None, input_circuits=None, output_circuits=None):
         """
         n_in: Number of Inputs
         n_out: Number of outputs
-        circuits_in: List with each item being a list of identifiers for the input circuits
-        circuits_in: List with each item being a list of identifiers for the output circuits
+        input_circuits: List with each item being a list of identifiers for the input circuits
+        output_circuits: List with each item being a list of identifiers for the output circuits
         """
 
         self.n_in = n_in
         self.n_out = n_out
 
-        self.n_circuit_in = [len(c_i) for c_i in circuits_in]
-        self.n_circuit_out = [len(c_i) for c_i in circuits_out]
+        self.n_circuit_in = [len(c_i) for c_i in input_circuits]
+        self.n_circuit_out = [len(c_i) for c_i in output_circuits]
 
-        self.Pb = self.Pb_fun(circuits_in, circuits_out)
-        self.Pc = self.Pc_fun(circuits_in, circuits_out)
+        self.Pb = self.Pb_fun(input_circuits, output_circuits)
+        self.Pc = self.Pc_fun(input_circuits, output_circuits)
 
         assert len(self.n_circuit_in) == self.n_in
         assert len(self.n_circuit_out) == self.n_out
@@ -46,7 +46,7 @@ class optimal_traffic_scheduler:
     def initialize_prediction(self):
         # Initial conditions: all zeros.
         v_out = [np.zeros((self.n_out, 1))]*self.N_steps
-        v_out_max = [np.zeros((self.n_out, 1))]*self.N_steps
+        v_out_max = [self.v_max*np.ones((self.n_out, 1))]*self.N_steps
         cv_out = [[np.zeros((n_circuit_out_i, 1)) for n_circuit_out_i in self.n_circuit_out]]*self.N_steps
         v_in = [np.zeros((self.n_in, 1))]*self.N_steps
         v_in_req = [np.zeros((self.n_in, 1))]*self.N_steps
@@ -409,8 +409,8 @@ class optimal_traffic_scheduler:
 
         E.g.: 2 inputs with 3 and 2 circuits and three outputs with 2, 1 and 2 circuits each:
 
-        circuits_in = [[0, 1, 2], [3, 4]]
-        circuits_out = [[1, 3], [0], [2, 4]]
+        input_circuits = [[0, 1, 2], [3, 4]]
+        output_circuits = [[1, 3], [0], [2, 4]]
 
         concatenate = True :
         P = array([[0., 1., 0., 1., 0.],
@@ -442,8 +442,8 @@ class optimal_traffic_scheduler:
 
         E.g.: 2 inputs with 3 and 2 circuits and three outputs with 2, 1 and 2 circuits each:
 
-        circuits_in = [[0, 1, 2], [3, 4]]
-        circuits_out = [[1, 3], [0], [2, 4]]
+        input_circuits = [[0, 1, 2], [3, 4]]
+        output_circuits = [[1, 3], [0], [2, 4]]
 
         Pc = array([[0., 1., 0., 0., 0.],
                     [0., 0., 0., 1., 0.],
@@ -460,9 +460,35 @@ class optimal_traffic_scheduler:
         return Pc
 
 
-class ots_client:
-    def __init__(self):
-        None
+class ots_client(optimal_traffic_scheduler):
+    def __init__(self, setup_dict, name='ots_client', record_values=True):
+        self.obj_name = name
+        self.v_max = setup_dict['v_max']
+        self.s_max = setup_dict['s_max']
+        self.dt = setup_dict['dt']
+        self.N_steps = setup_dict['N_steps']
+        self.record_values = record_values
+        self.time = np.array([[0]])  # 1,1 array for consistency.
 
-    def setup(self, *vargs):
-        None
+    def setup(self, n_in=None, n_out=None, input_circuits=None, output_circuits=None):
+        """
+        n_in: Number of Inputs
+        n_out: Number of outputs
+        input_circuits: List with each item being a list of identifiers for the input circuits
+        output_circuits: List with each item being a list of identifiers for the output circuits
+        """
+        self.n_in = n_in
+        self.n_out = n_out
+
+        if n_in == 0:
+            self.n_circuit_in = [0]
+        else:
+            self.n_circuit_in = [len(c_i) for c_i in input_circuits]
+        if n_out == 0:
+            self.n_circuit_out = [0]
+        else:
+            self.n_circuit_out = [len(c_i) for c_i in output_circuits]
+
+        super().initialize_prediction()
+        if self.record_values:
+            super().initialize_record()
