@@ -269,26 +269,71 @@ class network:
 
     def run_ots(self):
         """
-         a) Determine associated properties for every connection that are determined by the source and target:
+        a) Measure the current state of the network:
+        This populates the columns 's_circuit' and 's_buffer' of the self.nodes DataFrame.
+        """
+        self.make_measurement()
+
+        """
+         b) Determine associated properties for every connection that are determined by the source and target:
         """
         # Packet stream is depending on the source. Create [N_timesteps x n_outputs x 1] array (with np.stack())
         # and access the element that is stored in 'output_ind' for each connection.
         self.connections['v_con'] = self.connections.apply(lambda row: np.stack(row['source'].ots.predict[-1]['v_out'])[:, [row['source_ind']], :], axis=1)
-        self.connections['c_con'] = self.connections.apply(lambda row: np.stack(row['source'].ots.predict[-1]['cv_out'])[:, [row['source_ind']], :], axis=1)
+        #self.connections['v_con'] = self.connections.apply(lambda row: [v_out_i[[row['source_ind']]] for v_out_i in row['source'].ots.predict[-1]['v_out']], axis=1)
+        #self.connections['c_con'] = self.connections.apply(lambda row: np.stack(row['source'].ots.predict[-1]['cv_out'])[:, [row['source_ind']], :], axis=1)
+        self.connections['c_con'] = self.connections.apply(lambda row: [cv_out_i[row['source_ind']] for cv_out_i in row['source'].ots.predict[-1]['cv_out']], axis=1)
         # Allowed packet stream is determinded by the target:
         self.connections['v_max'] = self.connections.apply(lambda row: np.stack(row['target'].ots.predict[-1]['v_in_max'])[:, [row['target_ind']], :], axis=1)
+        #self.connections['v_max'] = self.connections.apply(lambda row: [v_max_i[[row['target_ind']]] for v_max_i in row['target'].ots.predict[-1]['v_in_max']], axis=1)
         # Create [N_timesteps x n_outputs x 1] array (with np.stack()).
         # Note that each server only has one value for bandwidth and memory load.
         self.connections['bandwidth_load_target'] = self.connections.apply(lambda row: np.stack(row['target'].ots.predict[-1]['bandwidth_load']), axis=1)
         self.connections['memory_load_target'] = self.connections.apply(lambda row: np.stack(row['target'].ots.predict[-1]['memory_load']), axis=1)
+        #self.connections['bandwidth_load_target'] = self.connections.apply(lambda row: [bwl_i for bwl_i in row['target'].ots.predict[-1]['bandwidth_load']], axis=1)
+        #self.connections['memory_load_target'] = self.connections.apply(lambda row: [ml_i for ml_i in row['target'].ots.predict[-1]['memory_load']], axis=1)
         self.connections['bandwidth_load_source'] = self.connections.apply(lambda row: np.stack(row['source'].ots.predict[-1]['bandwidth_load']), axis=1)
         self.connections['memory_load_source'] = self.connections.apply(lambda row: np.stack(row['source'].ots.predict[-1]['memory_load']), axis=1)
+        #self.connections['bandwidth_load_source'] = self.connections.apply(lambda row: [bwl_i for bwl_i in row['source'].ots.predict[-1]['bandwidth_load']], axis=1)
+        #self.connections['memory_load_source'] = self.connections.apply(lambda row: [ml_i for ml_i in row['source'].ots.predict[-1]['memory_load']], axis=1)
+
+        # b) Iterate over all nodes, query respective I/O data from connections and simulate node
+        for k, node_k in self.nodes.iterrows():
+            # Simulate only if the node is an optimal_traffic_scheduler.
+            if type(node_k.node.ots) is optimal_traffic_scheduler:
+                # Concatenate package streams for all inputs:
+                pdb.set_trace()
+                v_in_req = [el for el in np.concatenate(self.connections.loc[node_k['con_target'], 'v_con'].values, axis=1)]
+                cv_in = [[cv_i_k for cv_i_k in cv_i] for cv_i in zip(*self.connections.loc[node_k['con_target'], 'c_con'].values)]
+                #cv_in = np.concatenate(self.connections.loc[node_k['con_target'], 'c_con'].values, axis=1)
+                # And the allowed packet streams:
+                v_out_max = [el for el in np.concatenate(self.connections.loc[node_k['con_source'], 'v_max'].values, axis=1)]
+                # Concatenate bandwidth and memory load for all outputs:
+                bandwidth_load_target = [el for el in np.concatenate(self.connections.loc[node_k['con_source'], 'bandwidth_load_target'].values, axis=1)]
+                memory_load_target = [el for el in np.concatenate(self.connections.loc[node_k['con_source'], 'memory_load_target'].values, axis=1)]
+                # Concatenate bandwidth and memory load for all input:
+                bandwidth_load_source = [el for el in np.concatenate(self.connections.loc[node_k['con_target'], 'bandwidth_load_source'].values, axis=1)]
+                memory_load_source = [el for el in np.concatenate(self.connections.loc[node_k['con_target'], 'memory_load_source'].values, axis=1)]
+
+                # # Delay Information:
+                # input_delay = self.connections.loc[node_k['con_source'], 'delay'].values.reshape(-1, 1)
+                # output_delay = self.connections.loc[node_k['con_target'], 'delay'].values.reshape(-1, 1)
+                #
+                # # Correct inputs due to delay (latency):
+                # v_in_circuit, bandwidth_load, memory_load = node_k.node.latency_adaption(
+                #     v_in_circuit, bandwidth_load, memory_load, input_delay, output_delay)
+
+                # Simulate Node with intial condition:
+                s_buffer_0 = np.array(node_k['s_buffer']).reshape(-1, 1)
+                s_circuit_0 = np.array(node_k['s_circuit']).reshape(-1, 1)
+                node_k.node.ots.solve(s_buffer_0, s_circuit_0, v_in_req, cv_in, v_out_max, bandwidth_load_target, memory_load_target, bandwidth_load_source, memory_load_source)
+
+            if type(node_k.node.ots) is ots_client:
+                None
 
     def make_measurement(self):
         self.nodes['s_circuit'] = self.nodes.apply(self.get_circuit_size, axis=1)
         self.nodes['s_buffer'] = self.nodes.apply(self.get_buffer_size, axis=1)
-
-    """ Optimal traffic scheduler methods: """
 
     def setup_ots(self):
         """
@@ -336,18 +381,17 @@ class network:
 
         return sb
 
-    @staticmethod
-    def get_circuit_size(row):
+    def get_circuit_size(self, row):
         if row['node'].output_buffer:
             output_buffer_concat = np.concatenate(row['node'].output_buffer)
         else:
             output_buffer_concat = []
 
         if row['output_circuits'] is not None:
-            packets_per_circuit = dat.packet_list.loc[output_buffer_concat, ['circuit']].groupby('circuit').size()
-            sc = [[packets_per_circuit[output_i_circuits_j] for output_i_circuits_j in output_i_circuits if output_i_circuits_j in packets_per_circuit] for output_i_circuits in row['output_circuits']]
+            packets_per_circuit = self.data.packet_list.loc[output_buffer_concat, ['circuit']].groupby('circuit').size()
+            sc = [[packets_per_circuit[output_i_circuits_j] if output_i_circuits_j in packets_per_circuit else 0 for output_i_circuits_j in output_i_circuits] for output_i_circuits in row['output_circuits']]
         else:
-            sc = []
+            sc = None
 
         return sc
 
