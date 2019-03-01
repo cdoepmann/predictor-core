@@ -342,35 +342,34 @@ class optimal_traffic_scheduler:
         for key, val in self.predict[-1].items():
             self.record[key].append(val[0])
 
-    def latency_adaption(self, v_in_circuit, bandwidth_load_target, memory_load_target, input_delay, output_delay):
+    def latency_adaption(self, sequence, type, input_delay=np.array([0]), output_delay=np.array([0])):
         """
         Adapting the incoming predictions due to latency.
         """
         assert self.dt > np.max(input_delay) and self.dt > np.max(output_delay), "Delays that are greater than one optimization time step are currently not supported."
-        # Extend the current predictions by repeating the end value.
-        # This is required since we need to extrapolate further than the current horizon, when information is delayed.
-        v_in_circuit_ext = np.concatenate((v_in_circuit, v_in_circuit[[-1]]), axis=0)
-        # Delay of incoming connections affect v_in_circuit. (n_timesteps x n_components x 1 tensor)
-        t_in = self.dt*np.arange(-1, self.N_steps).reshape(-1, 1, 1)+input_delay.reshape(1, -1, 1)
-        # At these times the values will be interpolated:
-        t_interp_in = self.dt*np.arange(self.N_steps).reshape(-1, 1, 1)+np.zeros((1, v_in_circuit_ext.shape[1], 1))
-        v_in_circuit_interp = self.interpol_nd(t_in, v_in_circuit_ext, t_interp_in)
+        if type == 'input':
+            # Extend the current predictions by repeating the end value.
+            # This is required since we need to extrapolate further than the current horizon, when information is delayed.
+            sequence_ext = np.concatenate((sequence, sequence[[-1]]), axis=0)
+            # Delay of incoming connections affect v_in_circuit. (n_timesteps x n_components x 1 tensor)
+            t_in = self.dt*np.arange(-1, self.N_steps).reshape(-1, 1, 1)+input_delay.reshape(1, -1, 1)
+            # At these times the values will be interpolated:
+            t_interp_in = self.dt*np.arange(self.N_steps).reshape(-1, 1, 1)+np.zeros((1, sequence_ext.shape[1], 1))
+            sequence_interp = self.interpol_nd(t_in, sequence_ext, t_interp_in)
 
-        # Bandwidth and memory load of receiving servers are treated differently. Again, we are looking at "old" information,
+        # Output sequences are treated differently. Again, we are looking at "old" information,
         # but now we also need to take into accound that the actions at the current node influence the receiving nodes in the
-        # future. This means we discard the first element of bandwidth_load_target and memory_load_target as they lie completely in the past.
+        # future. This means we discard the first element as they lie completely in the past.
         # Furthermore, we need to extend the prediction by two further timesteps, which is achieved by repeating the end value twice.
-        bandwidth_load_target_ext = np.concatenate((bandwidth_load_target[1:], np.repeat(bandwidth_load_target[[-1]], 2, axis=0)), axis=0)
-        memory_load_target_ext = np.concatenate((memory_load_target[1:], np.repeat(memory_load_target[[-1]], 2, axis=0)), axis=0)
-        # The time at which the truncated predictions will be valid:
-        t_out = self.dt*np.arange(self.N_steps+1).reshape(-1, 1, 1)  # (0, 1, 2 ... , N+1)
-        # The time at which the current action will affect the receiving server:
-        t_interp_out = self.dt*np.arange(self.N_steps).reshape(-1, 1, 1)+output_delay.reshape(1, -1, 1)  # (0+d, 1+d, 2+d ... , N+d)
+        if type == 'output':
+            sequence_ext = np.concatenate((sequence[1:], np.repeat(sequence[[-1]], 2, axis=0)), axis=0)
+            # The time at which the truncated predictions will be valid:
+            t_out = self.dt*np.arange(self.N_steps+1).reshape(-1, 1, 1)  # (0, 1, 2 ... , N+1)
+            # The time at which the current action will affect the receiving server:
+            t_interp_out = self.dt*np.arange(self.N_steps).reshape(-1, 1, 1)+output_delay.reshape(1, -1, 1)  # (0+d, 1+d, 2+d ... , N+d)
+            sequence_interp = self.interpol_nd(t_out, sequence_ext, t_interp_out)
 
-        bandwidth_load_target_interp = self.interpol_nd(t_out, bandwidth_load_target_ext, t_interp_out)
-        memory_load_target_interp = self.interpol_nd(t_out, memory_load_target_ext, t_interp_out)
-
-        return v_in_circuit_interp, bandwidth_load_target_interp, memory_load_target_interp
+        return sequence_interp
 
     @staticmethod
     def interpol_nd(x, y, x_new, axis=0):

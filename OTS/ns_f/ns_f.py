@@ -120,7 +120,7 @@ class network:
         self.connections['prop'] = None
 
         for i, con in self.connections.iterrows():
-            con['prop'] = connection_cls(self.latency_fun(mean=0.1), window_size=2)
+            con['prop'] = connection_cls(self.latency_fun(mean=0.07), window_size=2)
 
         self.nodes['con_target'] = None
         self.nodes['n_in'] = None
@@ -298,26 +298,32 @@ class network:
             # Simulate only if the node is an optimal_traffic_scheduler.
             if type(node_k.node.ots) is optimal_traffic_scheduler:
                 # Concatenate package streams for all inputs:
-                v_in_req = [el for el in np.concatenate(self.connections.loc[node_k['con_target'], 'v_con'].values, axis=1)]
-                cv_in = [[cv_i_k for cv_i_k in cv_i] for cv_i in zip(*self.connections.loc[node_k['con_target'], 'c_con'].values)]
-                #cv_in = np.concatenate(self.connections.loc[node_k['con_target'], 'c_con'].values, axis=1)
+                v_in_req = np.concatenate(self.connections.loc[node_k['con_target'], 'v_con'].values, axis=1)
+                # cv_in = [[cv_i_k for cv_i_k in cv_i] for cv_i in zip(*self.connections.loc[node_k['con_target'], 'c_con'].values)]
+                cv_in = np.stack([np.concatenate(cv_i, axis=0) for cv_i in zip(*self.connections.loc[node_k['con_target'], 'c_con'].values)], axis=0)
+                # cv_in = np.concatenate(self.connections.loc[node_k['con_target'], 'c_con'].values, axis=1)
                 # And the allowed packet streams:
-                v_out_max = [el for el in np.concatenate(self.connections.loc[node_k['con_source'], 'v_max'].values, axis=1)]
+                v_out_max = np.concatenate(self.connections.loc[node_k['con_source'], 'v_max'].values, axis=1)
                 # Concatenate bandwidth and memory load for all outputs:
-                bandwidth_load_target = [el for el in np.concatenate(self.connections.loc[node_k['con_source'], 'bandwidth_load_target'].values, axis=1)]
-                memory_load_target = [el for el in np.concatenate(self.connections.loc[node_k['con_source'], 'memory_load_target'].values, axis=1)]
+                bandwidth_load_target = np.concatenate(self.connections.loc[node_k['con_source'], 'bandwidth_load_target'].values, axis=1)
+                memory_load_target = np.concatenate(self.connections.loc[node_k['con_source'], 'memory_load_target'].values, axis=1)
                 # Concatenate bandwidth and memory load for all input:
-                bandwidth_load_source = [el for el in np.concatenate(self.connections.loc[node_k['con_target'], 'bandwidth_load_source'].values, axis=1)]
-                memory_load_source = [el for el in np.concatenate(self.connections.loc[node_k['con_target'], 'memory_load_source'].values, axis=1)]
-
+                bandwidth_load_source = np.concatenate(self.connections.loc[node_k['con_target'], 'bandwidth_load_source'].values, axis=1)
+                memory_load_source = np.concatenate(self.connections.loc[node_k['con_target'], 'memory_load_source'].values, axis=1)
                 # # Delay Information:
-                pdb.set_trace()
-                input_delay = self.connections.loc[node_k['con_source']].apply(lambda con: con.prop.latency_fun(self.t), axis=1).values.reshape(-1, 1)
-                output_delay = self.connections.loc[node_k['con_target']].apply(lambda con: con.prop.latency_fun(self.t), axis=1).values.reshape(-1, 1)
+                input_delay = self.connections.loc[node_k['con_target']].apply(lambda con: con.prop.latency_fun(self.t), axis=1).values.reshape(-1, 1)
+                output_delay = self.connections.loc[node_k['con_source']].apply(lambda con: con.prop.latency_fun(self.t), axis=1).values.reshape(-1, 1)
                 # # Correct inputs due to delay (latency):
-                v_in_circuit, bandwidth_load, memory_load = node_k.node.ots.latency_adaption(
-                    v_in_circuit, bandwidth_load, memory_load, input_delay, output_delay)
-
+                cv_in = node_k.node.ots.latency_adaption(cv_in, type='input', input_delay=input_delay)
+                v_in_req = node_k.node.ots.latency_adaption(v_in_req, type='input', input_delay=input_delay)
+                v_out_max = node_k.node.ots.latency_adaption(v_out_max, type='output', input_delay=output_delay)
+                bandwidth_load_target = node_k.node.ots.latency_adaption(bandwidth_load_target, type='output', output_delay=output_delay)
+                memory_load_target = node_k.node.ots.latency_adaption(memory_load_target, type='output', output_delay=output_delay)
+                bandwidth_load_source = node_k.node.ots.latency_adaption(bandwidth_load_source, type='input', output_delay=input_delay)
+                memory_load_source = node_k.node.ots.latency_adaption(memory_load_source, type='input', output_delay=input_delay)
+                # Make lists from concatenated numpy arrays:
+                v_in_req, v_out_max, bandwidth_load_target, bandwidth_load_source, memory_load_source = [[el for el in arr] for arr in [v_in_req, v_out_max, bandwidth_load_target, bandwidth_load_source, memory_load_source]]
+                cv_in = [np.split(el, np.cumsum(node_k.node.ots.n_circuit_in)[:-1].tolist(), axis=0) for el in cv_in]
                 # Simulate Node with intial condition:
                 s_buffer_0 = np.array(node_k['s_buffer']).reshape(-1, 1)
                 s_circuit_0 = np.array(node_k['s_circuit']).reshape(-1, 1)
@@ -359,7 +365,7 @@ class network:
 
         self.control_mode = 'ots'
 
-        #self.nodes.apply(lambda row: row['node'].ots.setup(row['n_in'], row['n_out'], row['input_circuits'], row['output_circuits']), axis=1)
+        # self.nodes.apply(lambda row: row['node'].ots.setup(row['n_in'], row['n_out'], row['input_circuits'], row['output_circuits']), axis=1)
 
     @staticmethod
     def latency_fun(mean, var=0):
