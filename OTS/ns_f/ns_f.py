@@ -86,6 +86,8 @@ class network:
 
         self.t_transmission = []
 
+        self.control_mode = 'ots'
+
     def from_circuits(self, circuits, packet_list_size=1000):
         self.connections, self.nodes = self.circ_2_network(circuits)
         self.analyze_connections()
@@ -167,7 +169,8 @@ class network:
                 timeout_ind = list(compress(con.prop.window, timeout_bool))
                 # Remove items from current window:
                 con.prop.window = self.remove_from_list(con.prop.window, timeout_ind)
-                con.prop.window_size = max(2, con.prop.window_size/2)
+                if self.control_mode is 'tcp':
+                    con.prop.window_size = max(2, con.prop.window_size/2)
 
             """ Send packages """
             # If the current window is smaller than the allowed window size:
@@ -220,7 +223,7 @@ class network:
                 self.data.packet_list.loc[replied_ind, 'tr'] = np.inf
 
             # Adjust window_size if any packages were received. Adjust window size exponentially if it is lower than the linear_growth_threshold.
-            if any(replied_bool):
+            if any(replied_bool) and self.control_mode is 'tcp':
                 if con.prop.window_size < self.linear_growth_threshold:
                     con.prop.window_size += sum(replied_bool)
                 else:
@@ -302,7 +305,6 @@ class network:
             # Simulate only if the node is an optimal_traffic_scheduler.
             if type(node_k.node.ots) is optimal_traffic_scheduler:
                 # Concatenate package streams for all inputs:
-                pdb.set_trace()
                 v_in_req = [el for el in np.concatenate(self.connections.loc[node_k['con_target'], 'v_con'].values, axis=1)]
                 cv_in = [[cv_i_k for cv_i_k in cv_i] for cv_i in zip(*self.connections.loc[node_k['con_target'], 'c_con'].values)]
                 #cv_in = np.concatenate(self.connections.loc[node_k['con_target'], 'c_con'].values, axis=1)
@@ -329,17 +331,42 @@ class network:
                 node_k.node.ots.solve(s_buffer_0, s_circuit_0, v_in_req, cv_in, v_out_max, bandwidth_load_target, memory_load_target, bandwidth_load_source, memory_load_source)
 
             if type(node_k.node.ots) is ots_client:
-                None
+                s_circuit_0 = np.array(node_k['s_circuit']).reshape(-1, 1)
+                s_buffer_0 = np.array(node_k['s_buffer']).reshape(-1, 1)
+
+                if node_k.n_in > 0:
+                    v_in_req = [el for el in np.concatenate(self.connections.loc[node_k['con_target'], 'v_con'].values, axis=1)]
+                    node_k.node.ots.update_prediction(s_buffer_0, s_buffer_0, v_in_req=v_in_req)
+                if node_k.n_out > 0:
+                    v_out_max = [el for el in np.concatenate(self.connections.loc[node_k['con_source'], 'v_max'].values, axis=1)]
+                    node_k.node.ots.update_prediction(s_buffer_0, s_buffer_0, v_out_max=v_out_max)
+
+            """ Update Window Size: """
+            for i, con in self.connections.iterrows():
+                con.prop.window_size = int(con.target.ots.predict[-1]['v_in_max'][0][con.target_ind]*con.target.ots.dt)
+
+        self.t_next_iter += self.dt_ots
 
     def make_measurement(self):
         self.nodes['s_circuit'] = self.nodes.apply(self.get_circuit_size, axis=1)
         self.nodes['s_buffer'] = self.nodes.apply(self.get_buffer_size, axis=1)
 
-    def setup_ots(self):
+    def setup_ots(self, dt_ots, N_steps):
         """
         Apply the .setup((n_in, n_out, circuits_in, circuits_ou)) method for each ots object assigned to the servers.
         """
-        self.nodes.apply(lambda row: row['node'].ots.setup(row['n_in'], row['n_out'], row['input_circuits'], row['output_circuits']), axis=1)
+        self.dt_ots = dt_ots
+        self.N_steps = N_steps
+        for i, node_i in self.nodes.iterrows():
+            node_i.node.ots.setup(node_i['n_in'], node_i['n_out'], node_i['input_circuits'], node_i['output_circuits'])
+            assert node_i.node.ots.dt == dt_ots, "The node: {0} has an inconsistent timestep.".format(node_i.node.obj_name)
+            assert node_i.node.ots.N_steps == N_steps, "The node: {0} has an inconsistent prediction horizon.".format(node_i.node.obj_name)
+
+        self.t_next_iter = 0
+
+        self.control_mode = 'ots'
+
+        #self.nodes.apply(lambda row: row['node'].ots.setup(row['n_in'], row['n_out'], row['input_circuits'], row['output_circuits']), axis=1)
 
     @staticmethod
     def latency_fun(mean, var=0):
