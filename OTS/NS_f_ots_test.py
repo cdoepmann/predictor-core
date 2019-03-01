@@ -39,3 +39,8 @@ server_2.set_ots(dt_ots, N_steps, ots_weights)
 
 # Based on the network the ots objects are configured and setup. The optimizer is now ready to run.
 nw.setup_ots()
+
+input_1.add_2_buffer(buffer_ind=0, circuit=0, n_packets=1000)
+input_2.add_2_buffer(buffer_ind=0, circuit=1, n_packets=1000)
+
+nw.run_ots()
