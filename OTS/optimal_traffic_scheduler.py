@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from casadi import *
 import pdb
-from scipy.interpolate import interp1d
+from scipy.linalg import block_diag
 
 
 class optimal_traffic_scheduler:
@@ -316,7 +316,6 @@ class optimal_traffic_scheduler:
         memory_load_node = [np.sum(s_buffer_i, keepdims=True)/self.s_max for s_buffer_i in s_buffer]
 
         self.time = self.time + self.dt
-        pdb.set_trace()
 
         self.predict.append({})
         self.predict[-1]['v_in'] = v_in
@@ -336,9 +335,12 @@ class optimal_traffic_scheduler:
         self.predict[-1]['memory_load_source'] = np.copy(memory_load_source)
 
         if self.record_values:
-            self.record['time'].append(np.copy(self.time))
-            for key, val in self.predict[-1].items():
-                self.record[key].append(val[0])
+            self.record_fun()
+
+    def record_fun(self):
+        self.record['time'].append(np.copy(self.time))
+        for key, val in self.predict[-1].items():
+            self.record[key].append(val[0])
 
     def latency_adaption(self, v_in_circuit, bandwidth_load_target, memory_load_target, input_delay, output_delay):
         """
@@ -492,11 +494,13 @@ class ots_client(optimal_traffic_scheduler):
         else:
             self.n_circuit_out = [len(c_i) for c_i in output_circuits]
 
+        self.Pc = block_diag(*[np.ones((n_circuit_out_i, 1)) for n_circuit_out_i in self.n_circuit_out])
+
         super().initialize_prediction()
         if self.record_values:
             super().initialize_record()
 
-    def update_prediction(self, s_buffer, s_circuit, v_out_max=None, v_in=None):
+    def update_prediction(self, s_buffer_0, s_circuit_0, v_out_max=None, v_in_req=None):
         """
         Depending on whether v_out_max or v_in is supplied (or both) this method will update
         the prediction for a receiving or a sending node.
@@ -504,8 +508,32 @@ class ots_client(optimal_traffic_scheduler):
         With v_out_max supplied: Sending node. Will update v_out prediction.
         With v_in supplied     : Receiving node. Will update v_in_max prediction.
         """
+
         if v_out_max:
+            s_buffer = []
+            s_circuit = []
+            v_out = []
+            cv_out = []
+            for v_out_max_i in v_out_max:
+                n_out_i = np.minimum(s_buffer_0, v_out_max_i*self.dt)
+                s_buffer_0 = s_buffer_0-n_out_i
+                # TODO: Only works for one circuit per input!
+                s_circuit_0 = s_circuit_0-n_out_i
+                v_out_i = n_out_i/self.dt
+                s_buffer.append(s_buffer_0)
+                s_circuit.append(s_circuit_0)
+                v_out.append(v_out_i)
+                cv_out.append([np.array([[1]])])
+            self.predict[-1]['v_out'] = v_out
+            self.predict[-1]['cv_out'] = cv_out
+            self.predict[-1]['s_buffer'] = s_buffer
+            self.predict[-1]['s_circuit'] = s_circuit
+
+        if v_in_req:
+            # Use default values for this case.
             None
 
-        if v_in:
-            None
+        if self.record_values:
+            super().record_fun()
+
+        self.time = self.time + self.dt
