@@ -187,7 +187,7 @@ class network:
             """ Receive packages and send replies """
             # Receive packages, if the current time is greater than the sending time plus the connection delay.
             t_sent = self.data.packet_list.loc[con.prop.transit, 'ts']
-            received_bool = t_sent + con.prop.latency_fun(t_sent) <= self.t  # boolean table.
+            received_bool = t_sent + con.prop.latency_fun(self.t) <= self.t  # boolean table.
             if any(received_bool):
                 # Packages that are candidates to enter the node:
                 received_candidate_ind = list(compress(con.prop.transit, received_bool))
@@ -208,7 +208,7 @@ class network:
             """ Receive replies """
             # Receive replies, if the current time is greater than the sending time plus the connection delay.
             t_replied = self.data.packet_list.loc[con.prop.transit_reply, 'tr']
-            replied_bool = t_replied+con.prop.latency_fun(t_replied) <= self.t
+            replied_bool = t_replied+con.prop.latency_fun(self.t) <= self.t
             if any(replied_bool):
                 replied_ind = list(compress(con.prop.transit_reply, replied_bool))
                 # Remove received packages from window:
@@ -283,22 +283,15 @@ class network:
         # Packet stream is depending on the source. Create [N_timesteps x n_outputs x 1] array (with np.stack())
         # and access the element that is stored in 'output_ind' for each connection.
         self.connections['v_con'] = self.connections.apply(lambda row: np.stack(row['source'].ots.predict[-1]['v_out'])[:, [row['source_ind']], :], axis=1)
-        #self.connections['v_con'] = self.connections.apply(lambda row: [v_out_i[[row['source_ind']]] for v_out_i in row['source'].ots.predict[-1]['v_out']], axis=1)
-        #self.connections['c_con'] = self.connections.apply(lambda row: np.stack(row['source'].ots.predict[-1]['cv_out'])[:, [row['source_ind']], :], axis=1)
         self.connections['c_con'] = self.connections.apply(lambda row: [cv_out_i[row['source_ind']] for cv_out_i in row['source'].ots.predict[-1]['cv_out']], axis=1)
         # Allowed packet stream is determinded by the target:
         self.connections['v_max'] = self.connections.apply(lambda row: np.stack(row['target'].ots.predict[-1]['v_in_max'])[:, [row['target_ind']], :], axis=1)
-        #self.connections['v_max'] = self.connections.apply(lambda row: [v_max_i[[row['target_ind']]] for v_max_i in row['target'].ots.predict[-1]['v_in_max']], axis=1)
         # Create [N_timesteps x n_outputs x 1] array (with np.stack()).
         # Note that each server only has one value for bandwidth and memory load.
         self.connections['bandwidth_load_target'] = self.connections.apply(lambda row: np.stack(row['target'].ots.predict[-1]['bandwidth_load']), axis=1)
         self.connections['memory_load_target'] = self.connections.apply(lambda row: np.stack(row['target'].ots.predict[-1]['memory_load']), axis=1)
-        #self.connections['bandwidth_load_target'] = self.connections.apply(lambda row: [bwl_i for bwl_i in row['target'].ots.predict[-1]['bandwidth_load']], axis=1)
-        #self.connections['memory_load_target'] = self.connections.apply(lambda row: [ml_i for ml_i in row['target'].ots.predict[-1]['memory_load']], axis=1)
         self.connections['bandwidth_load_source'] = self.connections.apply(lambda row: np.stack(row['source'].ots.predict[-1]['bandwidth_load']), axis=1)
         self.connections['memory_load_source'] = self.connections.apply(lambda row: np.stack(row['source'].ots.predict[-1]['memory_load']), axis=1)
-        #self.connections['bandwidth_load_source'] = self.connections.apply(lambda row: [bwl_i for bwl_i in row['source'].ots.predict[-1]['bandwidth_load']], axis=1)
-        #self.connections['memory_load_source'] = self.connections.apply(lambda row: [ml_i for ml_i in row['source'].ots.predict[-1]['memory_load']], axis=1)
 
         # b) Iterate over all nodes, query respective I/O data from connections and simulate node
         for k, node_k in self.nodes.iterrows():
@@ -318,12 +311,12 @@ class network:
                 memory_load_source = [el for el in np.concatenate(self.connections.loc[node_k['con_target'], 'memory_load_source'].values, axis=1)]
 
                 # # Delay Information:
-                # input_delay = self.connections.loc[node_k['con_source'], 'delay'].values.reshape(-1, 1)
-                # output_delay = self.connections.loc[node_k['con_target'], 'delay'].values.reshape(-1, 1)
-                #
+                pdb.set_trace()
+                input_delay = self.connections.loc[node_k['con_source']].apply(lambda con: con.prop.latency_fun(self.t), axis=1).values.reshape(-1, 1)
+                output_delay = self.connections.loc[node_k['con_target']].apply(lambda con: con.prop.latency_fun(self.t), axis=1).values.reshape(-1, 1)
                 # # Correct inputs due to delay (latency):
-                # v_in_circuit, bandwidth_load, memory_load = node_k.node.latency_adaption(
-                #     v_in_circuit, bandwidth_load, memory_load, input_delay, output_delay)
+                v_in_circuit, bandwidth_load, memory_load = node_k.node.ots.latency_adaption(
+                    v_in_circuit, bandwidth_load, memory_load, input_delay, output_delay)
 
                 # Simulate Node with intial condition:
                 s_buffer_0 = np.array(node_k['s_buffer']).reshape(-1, 1)
