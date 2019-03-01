@@ -46,11 +46,11 @@ class optimal_traffic_scheduler:
     def initialize_prediction(self):
         # Initial conditions: all zeros.
         v_out = [np.zeros((self.n_out, 1))]*self.N_steps
-        v_out_max = [self.v_max*np.ones((self.n_out, 1))]*self.N_steps
+        v_out_max = [np.zeros((self.n_out, 1))]*self.N_steps
         cv_out = [[np.zeros((n_circuit_out_i, 1)) for n_circuit_out_i in self.n_circuit_out]]*self.N_steps
         v_in = [np.zeros((self.n_in, 1))]*self.N_steps
         v_in_req = [np.zeros((self.n_in, 1))]*self.N_steps
-        v_in_max = [np.zeros((self.n_in, 1))]*self.N_steps
+        v_in_max = [self.v_max/(self.n_in+self.n_out)*np.ones((self.n_in, 1))]*self.N_steps
         cv_in = [[np.zeros((n_circuit_in_i, 1)) for n_circuit_in_i in self.n_circuit_in]]*self.N_steps
         s_buffer = [np.zeros((self.n_out, 1))]*self.N_steps
         s_circuit = [np.zeros((np.sum(self.n_circuit_in), 1))]*self.N_steps
@@ -138,7 +138,7 @@ class optimal_traffic_scheduler:
         s_tilde_next = s_buffer + self.dt*Pb@vc_in
         sc_tilde_next = s_circuit + self.dt*Pc@vc_in
 
-        cv_out = [sc_i/s_tilde_next[i] for i, sc_i in enumerate(vertsplit(sc_tilde_next, np.cumsum([0]+self.n_circuit_out)))]
+        cv_out = [if_else(s_tilde_next[i] > 0, sc_i/s_tilde_next[i], 0*sc_i) for i, sc_i in enumerate(vertsplit(sc_tilde_next, np.cumsum([0]+self.n_circuit_out)))]
         vc_out = vertcat(*[v_out_i*cv_out_i for v_out_i, cv_out_i in zip(v_out_list, cv_out)])
 
         s_next = s_tilde_next - self.dt*v_out
@@ -315,7 +315,8 @@ class optimal_traffic_scheduler:
 
         memory_load_node = [np.sum(s_buffer_i, keepdims=True)/self.s_max for s_buffer_i in s_buffer]
 
-        self.time += self.dt
+        self.time = self.time + self.dt
+        pdb.set_trace()
 
         self.predict.append({})
         self.predict[-1]['v_in'] = v_in
@@ -392,10 +393,10 @@ class optimal_traffic_scheduler:
           - integer: Split list in N equal lists of lenght ind. Raise error if list cant be split into sections of equal length.
           - list   : Split list at indices of ind. Such that, e.g: ind=[2,3] -> list[:2], list[2:3], list[3:]
         """
-        if type(ind) == int:
+        if type(ind) in [int, np.int64, np.int32]:
             assert np.mod(len(arr), ind) == 0, "List of length {0} can't be split into {1} "
             split_arr = [arr[ind*i:ind*(i+1)] for i in range(len(arr)//ind)]
-        if type(ind) == list or type(ind) == tuple:
+        if type(ind) in [list, tuple]:
             ind = [0]+ind+[len(arr)]
             split_arr = [arr[ind[i]:ind[i+1]] for i in range(len(ind)-1)]
 
@@ -475,7 +476,9 @@ class ots_client(optimal_traffic_scheduler):
         n_in: Number of Inputs
         n_out: Number of outputs
         input_circuits: List with each item being a list of identifiers for the input circuits
+        e.g.: input_circuits = [[0, 1, 2], [3, 4]] (n_in=2)
         output_circuits: List with each item being a list of identifiers for the output circuits
+        e.g.: output_circuits = [[1, 3], [0], [2, 4]] (n_out=3)
         """
         self.n_in = n_in
         self.n_out = n_out
@@ -492,3 +495,17 @@ class ots_client(optimal_traffic_scheduler):
         super().initialize_prediction()
         if self.record_values:
             super().initialize_record()
+
+    def update_prediction(self, s_buffer, s_circuit, v_out_max=None, v_in=None):
+        """
+        Depending on whether v_out_max or v_in is supplied (or both) this method will update
+        the prediction for a receiving or a sending node.
+
+        With v_out_max supplied: Sending node. Will update v_out prediction.
+        With v_in supplied     : Receiving node. Will update v_in_max prediction.
+        """
+        if v_out_max:
+            None
+
+        if v_in:
+            None
