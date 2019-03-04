@@ -340,9 +340,9 @@ class network:
                     v_out_max = [el for el in np.concatenate(self.connections.loc[node_k['con_source'], 'v_max'].values, axis=1)]
                     node_k.node.ots.update_prediction(s_buffer_0, s_buffer_0, v_out_max=v_out_max)
 
-            """ Update Window Size: """
-            for i, con in self.connections.iterrows():
-                con.prop.window_size = int(con.target.ots.predict[-1]['v_in_max'][0][con.target_ind]*con.target.ots.dt)
+        """ Update Window Size: """
+        for i, con in self.connections.iterrows():
+            con.prop.window_size = int(con.source.ots.predict[-1]['v_out'][0][con.source_ind]*con.target.ots.dt)
 
         self.t_next_iter += self.dt_ots
 
