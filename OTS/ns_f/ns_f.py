@@ -173,10 +173,20 @@ class network:
                     con.prop.window_size = max(2, con.prop.window_size/2)
 
             """ Send packages """
-            # If the current window is smaller than the allowed window size:
-            if len(con.prop.window) < int(con.prop.window_size):
+            if self.control_mode is 'tcp':
+                # If the current window is smaller than the allowed window size:
+                if len(con.prop.window) < int(con.prop.window_size):
+                    send_candidate_ind = self.remove_from_list(source_buffer, con.prop.window)
+                    n_send = int(min(con.prop.window_size-len(con.prop.window), len(send_candidate_ind), con.source.v_max*self.dt))
+                    send_ind = send_candidate_ind[:n_send]
+                    # Add indices to current window:
+                    con.prop.window += send_ind
+                    # Send packages and update t_sent:
+                    con.prop.transit += send_ind
+                    self.data.packet_list.loc[send_ind, 'ts'] = self.t
+            elif self.control_mode is 'ots':
                 send_candidate_ind = self.remove_from_list(source_buffer, con.prop.window)
-                n_send = int(min(con.prop.window_size-len(con.prop.window), len(send_candidate_ind), con.source.v_max*self.dt))
+                n_send = int(con.v_con[0]*self.dt)
                 send_ind = send_candidate_ind[:n_send]
                 # Add indices to current window:
                 con.prop.window += send_ind
@@ -346,8 +356,8 @@ class network:
                     node_k.node.ots.update_prediction(s_buffer_0, s_buffer_0, v_out_max=v_out_max)
 
         """ Update Window Size: """
-        for i, con in self.connections.iterrows():
-            con.prop.window_size = int(con.source.ots.predict[-1]['v_out'][0][con.source_ind]*con.target.ots.dt)
+        # for i, con in self.connections.iterrows():
+        #     con.prop.window_size = int(con.source.ots.predict[-1]['v_out'][0][con.source_ind]*con.target.ots.dt)
 
         self.t_next_iter += self.dt_ots
 
@@ -411,6 +421,11 @@ class network:
             sb = len(row['node'].output_buffer)
 
         return sb
+
+    @staticmethod
+    def get_transit_size(row):
+        """ Apply to connections """
+        return len(row.prop.transit)+len(row.prop.transit_reply)
 
     def get_circuit_size(self, row):
         if row['node'].output_buffer:
