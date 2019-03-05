@@ -340,7 +340,8 @@ class network:
                 # Simulate Node with intial condition:
                 s_buffer_0 = np.array(node_k['s_buffer']).reshape(-1, 1)
                 s_circuit_0 = np.array(node_k['s_circuit']).reshape(-1, 1)
-                success = node_k.node.ots.solve(s_buffer_0, s_circuit_0, v_in_req, cv_in, v_out_max, bandwidth_load_target, memory_load_target, bandwidth_load_source, memory_load_source)
+                s_transit_0 = np.array(node_k['s_transit']).reshape(-1, 1)
+                success = node_k.node.ots.solve(s_buffer_0, s_circuit_0, s_transit_0, v_in_req, cv_in, v_out_max, bandwidth_load_target, memory_load_target, bandwidth_load_source, memory_load_source, output_delay)
                 if not success:
                     pdb.set_trace()
 
@@ -355,13 +356,10 @@ class network:
                     v_out_max = [el for el in np.concatenate(self.connections.loc[node_k['con_source'], 'v_max'].values, axis=1)]
                     node_k.node.ots.update_prediction(s_buffer_0, s_buffer_0, v_out_max=v_out_max)
 
-        """ Update Window Size: """
-        # for i, con in self.connections.iterrows():
-        #     con.prop.window_size = int(con.source.ots.predict[-1]['v_out'][0][con.source_ind]*con.target.ots.dt)
-
         self.t_next_iter += self.dt_ots
 
     def make_measurement(self):
+        self.nodes['s_transit'] = self.nodes.apply(self.get_transit_size, axis=1)
         self.nodes['s_circuit'] = self.nodes.apply(self.get_circuit_size, axis=1)
         self.nodes['s_buffer'] = self.nodes.apply(self.get_buffer_size, axis=1)
 
@@ -372,7 +370,8 @@ class network:
         self.dt_ots = dt_ots
         self.N_steps = N_steps
         for i, node_i in self.nodes.iterrows():
-            node_i.node.ots.setup(node_i['n_in'], node_i['n_out'], node_i['input_circuits'], node_i['output_circuits'])
+            output_delay = self.connections.loc[node_i['con_source']].apply(lambda con: con.prop.latency_fun(self.t), axis=1).values
+            node_i.node.ots.setup(node_i['n_in'], node_i['n_out'], node_i['input_circuits'], node_i['output_circuits'], output_delay=output_delay)
             assert node_i.node.ots.dt == dt_ots, "The node: {0} has an inconsistent timestep.".format(node_i.node.obj_name)
             assert node_i.node.ots.N_steps == N_steps, "The node: {0} has an inconsistent prediction horizon.".format(node_i.node.obj_name)
 
@@ -413,19 +412,23 @@ class network:
         """
         return [ind_k for ind_k, output_circuits_k in enumerate(output_circuits) if row['circuit'] in output_circuits_k][0]
 
-    @staticmethod
-    def get_buffer_size(row):
+    def get_buffer_size(self, row):
         if row['node'].output_buffer:
             sb = [len(buffer_i) for buffer_i in row['node'].output_buffer]
+            st = self.connections.loc[row.con_source].apply(lambda con: len(con.prop.transit)+len(con.prop.transit_reply), axis=1).tolist()
+            sb = [sb_i-st_i for sb_i, st_i in zip(sb, st)]
         else:
             sb = len(row['node'].output_buffer)
+            st = len(row['node'].output_buffer)
 
         return sb
 
-    @staticmethod
-    def get_transit_size(row):
-        """ Apply to connections """
-        return len(row.prop.transit)+len(row.prop.transit_reply)
+    def get_transit_size(self, row):
+        if row['node'].output_buffer:
+            st = self.connections.loc[row.con_source].apply(lambda con: len(con.prop.transit)+len(con.prop.transit_reply), axis=1).tolist()
+        else:
+            st = len(row['node'].output_buffer)
+        return st
 
     def get_circuit_size(self, row):
         if row['node'].output_buffer:
