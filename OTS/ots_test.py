@@ -8,7 +8,7 @@ setup_dict['v_max'] = 20  # packets / s
 setup_dict['s_max'] = 200  # packets
 setup_dict['dt'] = 1  # s
 setup_dict['N_steps'] = 20
-setup_dict['weights'] = {'control_delta': 1, 'send': 1, 'store': 1, 'receive': 5}
+setup_dict['weights'] = {'control_delta': 0.1, 'send': 1, 'store': 0, 'receive': 1}
 
 ots = optimal_traffic_scheduler(setup_dict)
 
@@ -29,14 +29,15 @@ ots.setup(n_in, n_out, circuits_in, circuits_out)
 
 # Create some dummy data:
 s_buffer_0 = np.zeros((n_out, 1))
+s_buffer_0[0] = 200
 s_circuit_0 = np.zeros((np.sum(n_circuit_in), 1))
 
-v_in_req = [np.array([[20, 4]]).T]*ots.N_steps
+v_in_req = [np.array([[0, 0]]).T]*ots.N_steps
 
 cv_in = [[np.array([[0.5, 0.25, 0.25]]).T, np.array([[0.5, 0.5]]).T]]*ots.N_steps
 
 
-v_out_max = [np.array([[6, 6, 6]]).T]*ots.N_steps
+v_out_max = [np.array([[2, 2, 2]]).T]*ots.N_steps
 
 bandwidth_load_target = [np.array([[0, 0, 0]]).T]*ots.N_steps
 memory_load_target = [np.array([[0, 0, 0]]).T]*ots.N_steps
@@ -54,8 +55,35 @@ np.concatenate(ots.predict[-1]['v_in'], axis=1).T
 
 np.concatenate(ots.predict[-1]['v_in_max'], axis=1).T
 
-fig, ax = plt.subplots(1, 3)
-ax[0].step(range(20), np.sum(np.concatenate(ots.predict[-1]['v_out'], axis=1), axis=0))
-ax[1].step(range(20), np.sum(np.concatenate(ots.predict[-1]['v_in'], axis=1), axis=0))
-ax[2].step(range(20), np.sum(np.concatenate(ots.predict[-1]['s_buffer'], axis=1), axis=0))
+fig, ax = plt.subplots(2, 3, sharex=True, figsize=[16, 9])
+
+ax[0, 0].step(range(20), np.sum(np.concatenate(ots.predict[-1]['v_out'], axis=1), axis=0))
+ax[0, 1].step(range(20), np.sum(np.concatenate(ots.predict[-1]['v_in_req'], axis=1), axis=0), label='v_in_req')
+ax[0, 1].step(range(20), np.sum(np.concatenate(ots.predict[-1]['v_in_max'], axis=1), axis=0), label='v_max')
+ax[0, 1].step(range(20), np.sum(np.concatenate(ots.predict[-1]['v_in'], axis=1), axis=0), label='v_in')
+ax[0, 1].legend()
+ax[0, 2].step(range(20), np.sum(np.concatenate(ots.predict[-1]['s_buffer'], axis=1), axis=0))
+ax[1, 0].step(range(20), np.concatenate(ots.predict[-1]['v_out'], axis=1).T)
+ax[1, 1].step(range(20), np.concatenate(ots.predict[-1]['v_in'], axis=1).T)
+ax[1, 2].step(range(20), np.concatenate(ots.predict[-1]['s_buffer'], axis=1).T)
+
+ax[0, 0].set_ylim(bottom=-0.1, top=setup_dict['v_max'])
+ax[0, 1].set_ylim(bottom=-0.1, top=setup_dict['v_max'])
+ax[0, 2].set_ylim(bottom=-1, top=setup_dict['s_max'])
+ax[1, 0].set_ylim(bottom=-0.1, top=setup_dict['v_max'])
+ax[1, 1].set_ylim(bottom=-0.1, top=setup_dict['v_max'])
+ax[1, 2].set_ylim(bottom=-1, top=setup_dict['s_max'])
+
+ax[0, 0].set_title('Outgoing packets')
+ax[0, 1].set_title('Incoming packets')
+ax[0, 2].set_title('Buffer memory')
+ax[0, 0].set_ylabel('cumulated packets / second')
+ax[0, 1].set_ylabel('cumulated packets / second')
+ax[0, 2].set_ylabel('cumulated packets')
+ax[1, 0].set_ylabel('packets / second')
+ax[1, 1].set_ylabel('packets / second')
+ax[1, 2].set_ylabel('packets')
+
+
+plt.tight_layout()
 plt.show()

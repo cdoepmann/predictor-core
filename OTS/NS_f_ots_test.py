@@ -34,7 +34,7 @@ nw.from_circuits(circuits)
 # Each server node is assigned an ots object (or a client node)
 dt_ots = 0.1
 N_steps = 20
-ots_weights = {'control_delta': 0.1, 'send': 1, 'store': 1, 'receive': 5}
+ots_weights = {'control_delta': 0.1, 'send': 1, 'store': 0, 'receive': 1}
 
 input_1.set_ots_client(dt_ots, N_steps)
 input_2.set_ots_client(dt_ots, N_steps)
@@ -76,6 +76,7 @@ for k in range(n_steps):
 
 dat.packet_list[dat.packet_list['ttransit'] != np.inf].hist(by='circuit', column='ttransit', figsize=[13, 5], sharex=True, sharey=True)
 plt.tight_layout()
+dat.packet_list[dat.packet_list['ttransit'] != np.inf].hist(by='circuit', column='n_dropped', figsize=[13, 5], sharex=True, sharey=True)
 plt.show()
 
 
