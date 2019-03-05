@@ -132,9 +132,9 @@ class optimal_traffic_scheduler:
         s_tilde_next = s_buffer + self.dt*Pb@vc_in
         sc_tilde_next = s_circuit + self.dt*Pc@vc_in
 
-        eps = 1e-9
+        eps = 1e-6
         cv_out = [sc_i/(s_tilde_next[i]+eps) for i, sc_i in enumerate(vertsplit(sc_tilde_next, np.cumsum([0]+self.n_circuit_out)))]
-        #cv_out = [if_else(s_tilde_next[i] > 0, sc_i/s_tilde_next[i], 0*sc_i) for i, sc_i in enumerate(vertsplit(sc_tilde_next, np.cumsum([0]+self.n_circuit_out)))]
+        # cv_out = [if_else(s_tilde_next[i] > 0, sc_i/s_tilde_next[i], 0*sc_i) for i, sc_i in enumerate(vertsplit(sc_tilde_next, np.cumsum([0]+self.n_circuit_out)))]
         vc_out = vertcat(*[v_out_i*cv_out_i for v_out_i, cv_out_i in zip(v_out_list, cv_out)])
 
         s_next = s_tilde_next - self.dt*v_out
@@ -150,7 +150,7 @@ class optimal_traffic_scheduler:
             {'lb': [-np.inf]*self.n_in, 'eq': -v_in_extra, 'ub': [0]*self.n_in},  # additional incoming packet stream cant be negative
             {'lb': [0]*self.n_in, 'eq': v_in_discard*v_in_extra, 'ub': [0]*self.n_in},  # packets can be discarded or added (not both)
             {'lb': [-np.inf]*self.n_out, 'eq': -s_buffer, 'ub': [0]*self.n_out},  # buffer memory cant be <0 (for each output buffer)
-            {'lb': [-np.inf], 'eq': sum1(s_buffer+s_transit)-self.s_max, 'ub': [0]},  # buffer memory cant exceed s_max
+            {'lb': [-np.inf], 'eq': sum1(s_buffer)-self.s_max, 'ub': [0]},  # buffer memory cant exceed s_max
             {'lb': [-np.inf]*self.n_out, 'eq': -v_out, 'ub': [0]*self.n_out},  # outgoing packet stream cant be negative
             {'lb': [-np.inf]*self.n_out, 'eq': v_out-v_out_max, 'ub': [0]*self.n_out},  # outgoing packet stream cant be negative
         ]
@@ -369,8 +369,6 @@ class optimal_traffic_scheduler:
         s_buffer, s_circuit, s_transit, v_in_max, cv_out = self.split_list(aux_values, (np.array([1, 2, 3, 4])*self.N_steps).tolist())
         cv_out = self.split_list(cv_out, self.n_out)
 
-        if not np.allclose(np.sum(np.concatenate(cv_out, axis=0), axis=1), 1) and not np.allclose(np.sum(np.concatenate(cv_out, axis=0), axis=1), 0):
-            pdb.set_trace()
         v_in = [v_in_req_i - v_in_discard_i for v_in_req_i, v_in_discard_i in zip(v_in_req, v_in_discard)]
 
         # Calculate trajectory for bandwidth and memory:
