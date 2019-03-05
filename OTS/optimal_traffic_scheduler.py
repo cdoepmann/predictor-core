@@ -150,7 +150,7 @@ class optimal_traffic_scheduler:
             {'lb': [-np.inf]*self.n_in, 'eq': -v_in_extra, 'ub': [0]*self.n_in},  # additional incoming packet stream cant be negative
             {'lb': [0]*self.n_in, 'eq': v_in_discard*v_in_extra, 'ub': [0]*self.n_in},  # packets can be discarded or added (not both)
             {'lb': [-np.inf]*self.n_out, 'eq': -s_buffer, 'ub': [0]*self.n_out},  # buffer memory cant be <0 (for each output buffer)
-            {'lb': [-np.inf], 'eq': sum1(s_buffer)-self.s_max, 'ub': [0]},  # buffer memory cant exceed s_max
+            {'lb': [-np.inf], 'eq': sum1(s_buffer+s_transit)-self.s_max, 'ub': [0]},  # buffer memory cant exceed s_max
             {'lb': [-np.inf]*self.n_out, 'eq': -v_out, 'ub': [0]*self.n_out},  # outgoing packet stream cant be negative
             {'lb': [-np.inf]*self.n_out, 'eq': v_out-v_out_max, 'ub': [0]*self.n_out},  # outgoing packet stream cant be negative
         ]
@@ -165,7 +165,7 @@ class optimal_traffic_scheduler:
 
         """ Problem dictionary """
         mpc_problem = {}
-        mpc_problem['cons'] = Function('cons', [v_in_discard, v_in_extra, v_in_req, v_out, v_out_max, s_buffer], [cons])
+        mpc_problem['cons'] = Function('cons', [v_in_discard, v_in_extra, v_in_req, v_out, v_out_max, s_buffer, s_transit], [cons])
         mpc_problem['cons_lb'] = cons_lb
         mpc_problem['cons_ub'] = cons_ub
         mpc_problem['obj'] = Function('obj', [v_in_req, v_in_discard, v_in_extra, v_in_max_prev, v_out, v_out_prev, s_buffer, bandwidth_load_target, memory_load_target, bandwidth_load_source, memory_load_source], [obj])
@@ -273,7 +273,7 @@ class optimal_traffic_scheduler:
                                            bandwidth_load_source[k], memory_load_source[k])
 
             # Constraints for the current step
-            cons.append(self.mpc_problem['cons'](v_in_discard[k], v_in_extra[k], v_in_req[k], v_out[k], v_out_max[k], s_buffer[k]))
+            cons.append(self.mpc_problem['cons'](v_in_discard[k], v_in_extra[k], v_in_req[k], v_out[k], v_out_max[k], s_buffer[k], s_transit[k]))
             cons_lb.append(self.mpc_problem['cons_lb'])
             cons_ub.append(self.mpc_problem['cons_ub'])
 
@@ -334,7 +334,7 @@ class optimal_traffic_scheduler:
         v_in_discard_0 = [v_in_req_i-v_in_i for v_in_req_i, v_in_i in zip(v_in_req_0, v_in_0)]
 
         # Get previous v_out values to calculate v_transir_remove:
-        n_tr_remove = np.int32(np.ceil(2*output_delay/self.dt))
+        n_tr_remove = np.int32(np.ceil(2*output_delay.flatten()/self.dt))
         n_tr_remove_max = np.max(n_tr_remove)
         len_record = len(self.record['v_out'])
         v_out_prev = np.concatenate(self.record['v_out'][-np.minimum(n_tr_remove_max, len_record):], axis=1)
@@ -368,6 +368,9 @@ class optimal_traffic_scheduler:
         # s_buffer+s_circuit+[j for i in cv_out for j in i]
         s_buffer, s_circuit, s_transit, v_in_max, cv_out = self.split_list(aux_values, (np.array([1, 2, 3, 4])*self.N_steps).tolist())
         cv_out = self.split_list(cv_out, self.n_out)
+
+        if not np.allclose(np.sum(np.concatenate(cv_out, axis=0), axis=1), 1) and not np.allclose(np.sum(np.concatenate(cv_out, axis=0), axis=1), 0):
+            pdb.set_trace()
         v_in = [v_in_req_i - v_in_discard_i for v_in_req_i, v_in_discard_i in zip(v_in_req, v_in_discard)]
 
         # Calculate trajectory for bandwidth and memory:
@@ -538,7 +541,7 @@ class ots_client(optimal_traffic_scheduler):
         self.record_values = record_values
         self.time = np.array([[0]])  # 1,1 array for consistency.
 
-    def setup(self, n_in=None, n_out=None, input_circuits=None, output_circuits=None):
+    def setup(self, n_in=None, n_out=None, input_circuits=None, output_circuits=None, output_delay=0):
         """
         n_in: Number of Inputs
         n_out: Number of outputs
