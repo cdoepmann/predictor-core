@@ -203,7 +203,10 @@ class network:
                 # Reset ts for all received packages:
                 self.data.packet_list.loc[received_ind, 'ts'] = np.inf
                 # Remove packages from transit, including those that were not accepted in the buffer.
-                con.prop.transit = list(set(con.prop.transit)-set(received_candidate_ind))
+                con.prop.transit = self.remove_from_list(con.prop.transit, received_candidate_ind)
+                # Note if packets were dropped:
+                dropped_ind = self.remove_from_list(received_candidate_ind, received_ind)
+                self.data.packet_list.loc[dropped_ind, 'n_dropped'] += 1
 
             """ Receive replies """
             # Receive replies, if the current time is greater than the sending time plus the connection delay.
@@ -426,7 +429,7 @@ class network:
 
 class data:
     def __init__(self, packet_list_size=1000):
-        self.df_dict = {'circuit': 0, 'ts': np.inf, 'tr': np.inf, 'tspawn': np.inf, 'ttransit': np.inf}
+        self.df_dict = {'circuit': 0, 'ts': np.inf, 'tr': np.inf, 'tspawn': np.inf, 'ttransit': np.inf, 'n_dropped': 0}
         self.packet_list = pd.DataFrame(self.df_dict, index=range(packet_list_size))
         self.empty_list = np.arange(packet_list_size)
         self.numel = packet_list_size
