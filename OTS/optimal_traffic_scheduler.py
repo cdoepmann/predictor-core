@@ -126,21 +126,19 @@ class optimal_traffic_scheduler:
         Pb = SX.sym('Pb', self.n_out, np.sum(self.n_circuit_in))
         # Assignment Matrix: Which input circuit is directed to which output circuit:
         Pc = SX.sym('Pc', np.sum(self.n_circuit_in), np.sum(self.n_circuit_in))
-        # Assignment Matrix: Which output circuit belongs to which output buffer:
-        Po = block_diag(*[np.ones((1, n_circuits_out_i)) for n_circuits_out_i in self.n_circuit_out])
 
         """ System dynamics and constraints and objective"""
         # system dynamics, constraints and objective definition:
+        s_tilde_next = s_buffer + self.dt*Pb@vc_in
         sc_tilde_next = s_circuit + self.dt*Pc@vc_in
-        s_tilde_next = Po@sc_tilde_next
 
         eps = 1e-9
         cv_out = [sc_i/(s_tilde_next[i]+eps) for i, sc_i in enumerate(vertsplit(sc_tilde_next, np.cumsum([0]+self.n_circuit_out)))]
         #cv_out = [if_else(s_tilde_next[i] > 0, sc_i/s_tilde_next[i], 0*sc_i) for i, sc_i in enumerate(vertsplit(sc_tilde_next, np.cumsum([0]+self.n_circuit_out)))]
         vc_out = vertcat(*[v_out_i*cv_out_i for v_out_i, cv_out_i in zip(v_out_list, cv_out)])
 
+        s_next = s_tilde_next - self.dt*v_out
         sc_next = sc_tilde_next - self.dt*vc_out
-        s_next = Po@sc_next
         s_transit_next = s_transit + self.dt*(v_out - v_tr_remove)
 
         cons_list = [
@@ -151,8 +149,8 @@ class optimal_traffic_scheduler:
             {'lb': [-np.inf]*self.n_in, 'eq': -v_in_discard, 'ub': [0]*self.n_in},  # discarded packet stream cant be negative
             {'lb': [-np.inf]*self.n_in, 'eq': -v_in_extra, 'ub': [0]*self.n_in},  # additional incoming packet stream cant be negative
             {'lb': [0]*self.n_in, 'eq': v_in_discard*v_in_extra, 'ub': [0]*self.n_in},  # packets can be discarded or added (not both)
-            {'lb': [-np.inf]*np.sum(self.n_circuit_out), 'eq': -s_circuit, 'ub': [0]*np.sum(self.n_circuit_out)},  # buffer memory cant be <0 (for each output buffer)
-            {'lb': [-np.inf], 'eq': sum1(s_circuit)+sum1(s_transit)-self.s_max, 'ub': [0]},  # buffer memory cant exceed s_max
+            {'lb': [-np.inf]*self.n_out, 'eq': -s_buffer, 'ub': [0]*self.n_out},  # buffer memory cant be <0 (for each output buffer)
+            {'lb': [-np.inf], 'eq': sum1(s_buffer+s_transit)-self.s_max, 'ub': [0]},  # buffer memory cant exceed s_max
             {'lb': [-np.inf]*self.n_out, 'eq': -v_out, 'ub': [0]*self.n_out},  # outgoing packet stream cant be negative
             {'lb': [-np.inf]*self.n_out, 'eq': v_out-v_out_max, 'ub': [0]*self.n_out},  # outgoing packet stream cant be negative
         ]
@@ -167,7 +165,7 @@ class optimal_traffic_scheduler:
 
         """ Problem dictionary """
         mpc_problem = {}
-        mpc_problem['cons'] = Function('cons', [v_in_discard, v_in_extra, v_in_req, v_out, v_out_max, s_buffer, s_circuit, s_transit], [cons])
+        mpc_problem['cons'] = Function('cons', [v_in_discard, v_in_extra, v_in_req, v_out, v_out_max, s_buffer, s_transit], [cons])
         mpc_problem['cons_lb'] = cons_lb
         mpc_problem['cons_ub'] = cons_ub
         mpc_problem['obj'] = Function('obj', [v_in_req, v_in_discard, v_in_extra, v_in_max_prev, v_out, v_out_prev, s_buffer, bandwidth_load_target, memory_load_target, bandwidth_load_source, memory_load_source], [obj])
@@ -275,7 +273,7 @@ class optimal_traffic_scheduler:
                                            bandwidth_load_source[k], memory_load_source[k])
 
             # Constraints for the current step
-            cons.append(self.mpc_problem['cons'](v_in_discard[k], v_in_extra[k], v_in_req[k], v_out[k], v_out_max[k], s_buffer[k], s_circuit[k], s_transit[k]))
+            cons.append(self.mpc_problem['cons'](v_in_discard[k], v_in_extra[k], v_in_req[k], v_out[k], v_out_max[k], s_buffer[k], s_transit[k]))
             cons_lb.append(self.mpc_problem['cons_lb'])
             cons_ub.append(self.mpc_problem['cons_ub'])
 
@@ -371,8 +369,8 @@ class optimal_traffic_scheduler:
         s_buffer, s_circuit, s_transit, v_in_max, cv_out = self.split_list(aux_values, (np.array([1, 2, 3, 4])*self.N_steps).tolist())
         cv_out = self.split_list(cv_out, self.n_out)
 
-        # if not np.allclose(np.sum(np.concatenate(cv_out, axis=0), axis=1), 1) and not np.allclose(np.sum(np.concatenate(cv_out, axis=0), axis=1), 0):
-        #     pdb.set_trace()
+        if not np.allclose(np.sum(np.concatenate(cv_out, axis=0), axis=1), 1) and not np.allclose(np.sum(np.concatenate(cv_out, axis=0), axis=1), 0):
+            pdb.set_trace()
         v_in = [v_in_req_i - v_in_discard_i for v_in_req_i, v_in_discard_i in zip(v_in_req, v_in_discard)]
 
         # Calculate trajectory for bandwidth and memory:
