@@ -9,7 +9,7 @@ from optimal_traffic_scheduler import optimal_traffic_scheduler
 
 """
 
-dat = ns_f.data(50000)
+dat = ns_f.data(5000)
 
 setup_dict_server = {}
 setup_dict_server['v_max'] = 2000  # packets / s
@@ -34,7 +34,7 @@ nw.from_circuits(circuits)
 # Each server node is assigned an ots object (or a client node)
 dt_ots = 0.1
 N_steps = 20
-ots_weights = {'control_delta': 3, 'send': 1, 'store': 1, 'receive': 5}
+ots_weights = {'control_delta': 0.1, 'send': 1, 'store': 1, 'receive': 5}
 
 input_1.set_ots_client(dt_ots, N_steps)
 input_2.set_ots_client(dt_ots, N_steps)

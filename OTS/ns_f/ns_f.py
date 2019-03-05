@@ -322,12 +322,14 @@ class network:
                 bandwidth_load_source = node_k.node.ots.latency_adaption(bandwidth_load_source, type='input', output_delay=input_delay)
                 memory_load_source = node_k.node.ots.latency_adaption(memory_load_source, type='input', output_delay=input_delay)
                 # Make lists from concatenated numpy arrays:
-                v_in_req, v_out_max, bandwidth_load_target, bandwidth_load_source, memory_load_source = [[el for el in arr] for arr in [v_in_req, v_out_max, bandwidth_load_target, bandwidth_load_source, memory_load_source]]
+                v_in_req, v_out_max, bandwidth_load_target, memory_load_target, bandwidth_load_source, memory_load_source = [[el for el in arr] for arr in [v_in_req, v_out_max, bandwidth_load_target, memory_load_target, bandwidth_load_source, memory_load_source]]
                 cv_in = [np.split(el, np.cumsum(node_k.node.ots.n_circuit_in)[:-1].tolist(), axis=0) for el in cv_in]
                 # Simulate Node with intial condition:
                 s_buffer_0 = np.array(node_k['s_buffer']).reshape(-1, 1)
                 s_circuit_0 = np.array(node_k['s_circuit']).reshape(-1, 1)
-                node_k.node.ots.solve(s_buffer_0, s_circuit_0, v_in_req, cv_in, v_out_max, bandwidth_load_target, memory_load_target, bandwidth_load_source, memory_load_source)
+                success = node_k.node.ots.solve(s_buffer_0, s_circuit_0, v_in_req, cv_in, v_out_max, bandwidth_load_target, memory_load_target, bandwidth_load_source, memory_load_source)
+                if not success:
+                    pdb.set_trace()
 
             if type(node_k.node.ots) is ots_client:
                 s_circuit_0 = np.array(node_k['s_circuit']).reshape(-1, 1)
