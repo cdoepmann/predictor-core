@@ -363,6 +363,10 @@ class network:
         self.nodes['s_circuit'] = self.nodes.apply(self.get_circuit_size, axis=1)
         self.nodes['s_buffer'] = self.nodes.apply(self.get_buffer_size, axis=1)
 
+        check = (self.nodes['s_buffer'].apply(np.sum)-self.nodes['s_circuit'].apply(np.sum)).dropna().values
+        if not np.allclose(check, 0):
+            pdb.set_trace()
+
     def setup_ots(self, dt_ots, N_steps):
         """
         Apply the .setup((n_in, n_out, circuits_in, circuits_ou)) method for each ots object assigned to the servers.
@@ -416,7 +420,7 @@ class network:
         if row['node'].output_buffer:
             sb = [len(buffer_i) for buffer_i in row['node'].output_buffer]
             st = self.connections.loc[row.con_source].apply(lambda con: len(con.prop.transit)+len(con.prop.transit_reply), axis=1).tolist()
-            sb = [sb_i-st_i for sb_i, st_i in zip(sb, st)]
+            #sb = [sb_i-st_i for sb_i, st_i in zip(sb, st)]
         else:
             sb = len(row['node'].output_buffer)
             st = len(row['node'].output_buffer)
