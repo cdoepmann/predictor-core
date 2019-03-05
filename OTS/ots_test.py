@@ -5,10 +5,10 @@ import pdb
 
 setup_dict = {}
 setup_dict['v_max'] = 20  # packets / s
-setup_dict['s_max'] = 30  # packets
+setup_dict['s_max'] = 200  # packets
 setup_dict['dt'] = 1  # s
 setup_dict['N_steps'] = 20
-setup_dict['weights'] = {'control_delta': 1.41, 'send': 1, 'store': 1, 'receive': 10}
+setup_dict['weights'] = {'control_delta': 1, 'send': 1, 'store': 1, 'receive': 5}
 
 ots = optimal_traffic_scheduler(setup_dict)
 
@@ -31,7 +31,7 @@ ots.setup(n_in, n_out, circuits_in, circuits_out)
 s_buffer_0 = np.zeros((n_out, 1))
 s_circuit_0 = np.zeros((np.sum(n_circuit_in), 1))
 
-v_in_req = [np.array([[12, 4]]).T]*ots.N_steps
+v_in_req = [np.array([[20, 4]]).T]*ots.N_steps
 
 cv_in = [[np.array([[0.5, 0.25, 0.25]]).T, np.array([[0.5, 0.5]]).T]]*ots.N_steps
 
@@ -47,3 +47,15 @@ memory_load_source = [np.array([[0, 0]]).T]*ots.N_steps
 
 # Call the solver:
 ots.solve(s_buffer_0, s_circuit_0, v_in_req, cv_in, v_out_max, bandwidth_load_target, memory_load_target, bandwidth_load_source, memory_load_source)
+
+
+np.concatenate(ots.predict[-1]['v_out'], axis=1).T
+np.concatenate(ots.predict[-1]['v_in'], axis=1).T
+
+np.concatenate(ots.predict[-1]['v_in_max'], axis=1).T
+
+fig, ax = plt.subplots(1, 3)
+ax[0].step(range(20), np.sum(np.concatenate(ots.predict[-1]['v_out'], axis=1), axis=0))
+ax[1].step(range(20), np.sum(np.concatenate(ots.predict[-1]['v_in'], axis=1), axis=0))
+ax[2].step(range(20), np.sum(np.concatenate(ots.predict[-1]['s_buffer'], axis=1), axis=0))
+plt.show()

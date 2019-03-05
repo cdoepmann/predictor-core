@@ -143,8 +143,8 @@ class optimal_traffic_scheduler:
         sc_tilde_next = s_circuit + self.dt*Pc@vc_in
 
         eps = 1e-9
-        #cv_out = [sc_i/(s_tilde_next[i]+eps) for i, sc_i in enumerate(vertsplit(sc_tilde_next, np.cumsum([0]+self.n_circuit_out)))]
         cv_out = [sc_i/(s_tilde_next[i]+eps) for i, sc_i in enumerate(vertsplit(sc_tilde_next, np.cumsum([0]+self.n_circuit_out)))]
+        #cv_out = [if_else(s_tilde_next[i] > 0, sc_i/s_tilde_next[i], 0*sc_i) for i, sc_i in enumerate(vertsplit(sc_tilde_next, np.cumsum([0]+self.n_circuit_out)))]
         vc_out = vertcat(*[v_out_i*cv_out_i for v_out_i, cv_out_i in zip(v_out_list, cv_out)])
 
         s_next = s_tilde_next - self.dt*v_out
@@ -152,14 +152,16 @@ class optimal_traffic_scheduler:
 
         cons_list = [
             # maximum bandwidth cant be exceeded
-            {'lb': [-np.inf], 'eq': sum1(v_in)+sum1(v_out) - self.v_max, 'ub': [0]},
+            #{'lb': [-np.inf], 'eq': sum1(v_in)+sum1(v_out) - self.v_max, 'ub': [0]},
+            {'lb': [-np.inf], 'eq': sum1(v_in_max)+sum1(v_out)-self.v_max, 'ub': [0]},
+            {'lb': [-np.inf]*self.n_in, 'eq': -v_in, 'ub': [0]*self.n_in},  # v_in cant be negative
             {'lb': [-np.inf]*self.n_in, 'eq': -v_in_discard, 'ub': [0]*self.n_in},  # discarded packet stream cant be negative
             {'lb': [-np.inf]*self.n_in, 'eq': -v_in_extra, 'ub': [0]*self.n_in},  # additional incoming packet stream cant be negative
-            {'lb': [-np.inf]*self.n_in, 'eq': v_in_max-self.v_max, 'ub': [0]*self.n_in},  # v_in_max cant be greater than self.v_max.
             {'lb': [0]*self.n_in, 'eq': v_in_discard*v_in_extra, 'ub': [0]*self.n_in},  # packets can be discarded or added (not both)
             {'lb': [-np.inf]*self.n_out, 'eq': -s_buffer, 'ub': [0]*self.n_out},  # buffer memory cant be <0 (for each output buffer)
+            {'lb': [-np.inf], 'eq': sum1(s_buffer)-self.s_max, 'ub': [0]},  #
             {'lb': [-np.inf]*self.n_out, 'eq': -v_out, 'ub': [0]*self.n_out},  # outgoing packet stream cant be negative
-            {'lb': [-np.inf]*self.n_out, 'eq': v_out-v_out_max, 'ub': [0]*self.n_out},  # v_out cant be greater than v_out_max
+            {'lb': [-np.inf]*self.n_out, 'eq': v_out-v_out_max, 'ub': [0]*self.n_out},  # outgoing packet stream cant be negative
         ]
         cons = vertcat(*[con_i['eq'] for con_i in cons_list])
         cons_lb = np.concatenate([con_i['lb'] for con_i in cons_list])
@@ -167,7 +169,7 @@ class optimal_traffic_scheduler:
         # Maximize bandwidth  and maximize buffer:(under consideration of outgoing server load)
         # Note that 0<bandwidth_load_target<1 and memory_load_target is normalized by s_max but can exceed 1.
         obj = sum1((1-bandwidth_load_target)*(1-memory_load_target)*(-self.weights['send']*v_out/self.v_max+self.weights['store']*s_buffer/self.s_max))
-        obj += sum1((1+bandwidth_load_source*memory_load_source)*(-self.weights['receive']*(v_in_discard-v_in_extra)/self.v_max))
+        obj += sum1((1+bandwidth_load_source*memory_load_source)*(self.weights['receive']*(v_in_discard-v_in_extra)/self.v_max))
         obj += self.weights['control_delta']*(sum1(((v_out-v_out_prev)/self.v_max)**2)+sum1(((v_in_max-v_in_max_prev)/self.v_max)**2))
 
         """ Problem dictionary """
@@ -273,7 +275,8 @@ class optimal_traffic_scheduler:
         self.cons_lb = np.concatenate(cons_lb)
         self.cons_ub = np.concatenate(cons_ub)
         # Create casadi optimization object:
-        self.optim = nlpsol('optim', 'ipopt', optim_dict)
+        opts = {'ipopt.linear_solver': 'MA27'}
+        self.optim = nlpsol('optim', 'ipopt', optim_dict, opts)
         # Create function to calculate buffer memory from parameter and optimization variable trajectories
         self.aux_fun = Function('aux_fun', [s_buffer_0, s_circuit_0]+v_in_discard+v_in_extra+v_in_req+[j for i in cv_in for j in i]+v_out+[Pb, Pc],
                                 s_buffer+s_circuit+v_in_max+[j for i in cv_out for j in i])
@@ -323,6 +326,7 @@ class optimal_traffic_scheduler:
         x0 = np.concatenate(v_out_0+v_in_discard_0+v_in_extra_0, axis=0)
         # Solve optimization problem for given conditions:
         optim_results = self.optim(ubg=self.cons_ub, lbg=self.cons_lb, p=param, x0=x0)  # Note: constraints were formulated, such that cons<=0.
+        optim_stats = self.optim.stats()
 
         # Retrieve trajectory from solution:
         optim_sol = optim_results['x'].full()
@@ -331,14 +335,13 @@ class optimal_traffic_scheduler:
         v_out = [v_out_i.reshape(-1, 1) for v_out_i in np.split(v_out, self.N_steps)]
         v_in_discard = [v_in_discard_i.reshape(-1, 1) for v_in_discard_i in np.split(v_in_discard, self.N_steps)]
         v_in_extra = [v_in_extra_i.reshape(-1, 1) for v_in_extra_i in np.split(v_in_extra, self.N_steps)]
-
         # Calculate additional trajectories:
         aux_values = self.aux_fun(s_buffer_0, s_circuit_0, *v_in_discard, *v_in_extra, *v_in_req, *[j for i in cv_in for j in i], *v_out, self.Pb, self.Pc)
         aux_values = [aux_i.full() for aux_i in aux_values]
         # s_buffer+s_circuit+[j for i in cv_out for j in i]
         s_buffer, s_circuit, v_in_max, cv_out = self.split_list(aux_values, [self.N_steps, 2*self.N_steps, 3*self.N_steps])
         cv_out = self.split_list(cv_out, self.n_out)
-        v_in = [np.minimum(v_in_req_i, v_in_max_i) for v_in_req_i, v_in_max_i in zip(v_in_req, v_in_max)]
+        v_in = [v_in_req_i - v_in_discard_i for v_in_req_i, v_in_discard_i in zip(v_in_req, v_in_discard)]
 
         # Calculate trajectory for bandwidth and memory:
         bandwidth_load_node = [(np.sum(v_out_i, keepdims=True)+np.sum(v_in_i, keepdims=True))/self.v_max for v_out_i,
@@ -367,6 +370,10 @@ class optimal_traffic_scheduler:
 
         if self.record_values:
             self.record_fun()
+
+        if not optim_stats['success']:
+            pdb.set_trace()
+        return optim_stats['success']
 
     def record_fun(self):
         self.record['time'].append(np.copy(self.time))
