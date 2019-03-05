@@ -50,6 +50,7 @@ input_1.add_2_buffer(buffer_ind=0, circuit=0, n_packets=1000)
 input_2.add_2_buffer(buffer_ind=0, circuit=1, n_packets=2000)
 
 nw.run_ots()
+nw.control_mode = 'ots'
 
 s_list = []
 win_size_list = []
@@ -67,7 +68,7 @@ for k in range(n_steps):
 
     nw.simulate()
 
-    if nw.t_next_iter <= nw.t:
+    if nw.t_next_iter <= nw.t and nw.control_mode == 'ots':
         nw.run_ots()
 
     if np.mod(k, 10) == 0:

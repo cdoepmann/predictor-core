@@ -35,7 +35,7 @@ s_buffer_0[0] = 50
 s_transit_0 = np.zeros((n_out, 1))
 s_circuit_0 = np.zeros((np.sum(n_circuit_in), 1))
 
-v_in_req = [np.array([[0, 0]]).T]*ots.N_steps
+v_in_req = [np.array([[10, 3]]).T]*ots.N_steps
 
 cv_in = [[np.array([[0.5, 0.25, 0.25]]).T, np.array([[0.5, 0.5]]).T]]*ots.N_steps
 
