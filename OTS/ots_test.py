@@ -6,7 +6,7 @@ import pdb
 setup_dict = {}
 setup_dict['v_max'] = 20  # packets / s
 setup_dict['s_max'] = 200  # packets
-setup_dict['dt'] = 1  # s
+setup_dict['dt'] = 0.1  # s
 setup_dict['N_steps'] = 20
 setup_dict['weights'] = {'control_delta': 0.1, 'send': 1, 'store': 0, 'receive': 1}
 
@@ -17,6 +17,8 @@ ots = optimal_traffic_scheduler(setup_dict)
 circuits_in = [[0, 1, 2], [3, 4]]
 circuits_out = [[1, 3], [0], [2, 4]]
 
+output_delay = np.array([0.02, 0.03, 0.03])
+
 n_in = len(circuits_in)
 n_out = len(circuits_out)
 
@@ -24,12 +26,12 @@ n_circuit_in = [len(c_i) for c_i in circuits_in]
 
 n_circuit_out = [len(c_i) for c_i in circuits_out]
 
-ots.setup(n_in, n_out, circuits_in, circuits_out)
+ots.setup(n_in, n_out, circuits_in, circuits_out, output_delay=output_delay)
 
 
 # Create some dummy data:
 s_buffer_0 = np.zeros((n_out, 1))
-s_buffer_0[0] = 200
+s_transit_0 = np.zeros((n_out, 1))
 s_circuit_0 = np.zeros((np.sum(n_circuit_in), 1))
 
 v_in_req = [np.array([[0, 0]]).T]*ots.N_steps
@@ -47,7 +49,7 @@ memory_load_source = [np.array([[0, 0]]).T]*ots.N_steps
 
 
 # Call the solver:
-ots.solve(s_buffer_0, s_circuit_0, v_in_req, cv_in, v_out_max, bandwidth_load_target, memory_load_target, bandwidth_load_source, memory_load_source)
+ots.solve(s_buffer_0, s_circuit_0, s_transit_0, v_in_req, cv_in, v_out_max, bandwidth_load_target, memory_load_target, bandwidth_load_source, memory_load_source, output_delay)
 
 
 np.concatenate(ots.predict[-1]['v_out'], axis=1).T
