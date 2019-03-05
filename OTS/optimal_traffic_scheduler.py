@@ -45,38 +45,24 @@ class optimal_traffic_scheduler:
 
     def initialize_prediction(self):
         # Initial conditions: all zeros.
-        v_out = [np.zeros((self.n_out, 1))]*self.N_steps
-        v_out_max = [np.zeros((self.n_out, 1))]*self.N_steps
-        cv_out = [[np.zeros((n_circuit_out_i, 1)) for n_circuit_out_i in self.n_circuit_out]]*self.N_steps
-        v_in = [np.zeros((self.n_in, 1))]*self.N_steps
-        v_in_req = [np.zeros((self.n_in, 1))]*self.N_steps
-        v_in_max = [self.v_max/(self.n_in+self.n_out)*np.ones((self.n_in, 1))]*self.N_steps
-        cv_in = [[np.zeros((n_circuit_in_i, 1)) for n_circuit_in_i in self.n_circuit_in]]*self.N_steps
-        s_buffer = [np.zeros((self.n_out, 1))]*self.N_steps
-        s_circuit = [np.zeros((np.sum(self.n_circuit_in), 1))]*self.N_steps
-        bandwidth_load = [np.zeros((1, 1))]*self.N_steps
-        memory_load = [np.zeros((1, 1))]*self.N_steps
-        bandwidth_load_target = [np.zeros((self.n_out, 1))]*self.N_steps
-        memory_load_target = [np.zeros((self.n_out, 1))]*self.N_steps
-        bandwidth_load_source = [np.zeros((self.n_in, 1))]*self.N_steps
-        memory_load_source = [np.zeros((self.n_in, 1))]*self.N_steps
-
-        self.predict = [{}]
-        self.predict[0]['v_out'] = v_out
-        self.predict[0]['v_out_max'] = v_out_max
-        self.predict[0]['cv_out'] = cv_out
-        self.predict[0]['v_in'] = v_in
-        self.predict[0]['v_in_req'] = v_in_req
-        self.predict[0]['v_in_max'] = v_in_max
-        self.predict[0]['cv_in'] = cv_in
-        self.predict[0]['s_buffer'] = s_buffer
-        self.predict[0]['s_circuit'] = s_circuit
-        self.predict[0]['bandwidth_load'] = bandwidth_load
-        self.predict[0]['memory_load'] = memory_load
-        self.predict[0]['bandwidth_load_target'] = bandwidth_load_target
-        self.predict[0]['memory_load_target'] = memory_load_target
-        self.predict[0]['bandwidth_load_source'] = bandwidth_load_source
-        self.predict[0]['memory_load_source'] = memory_load_source
+        self.predict = [{
+            'v_out': [np.zeros((self.n_out, 1))]*self.N_steps,
+            'v_out_max': [np.zeros((self.n_out, 1))]*self.N_steps,
+            'cv_out': [[np.zeros((n_circuit_out_i, 1)) for n_circuit_out_i in self.n_circuit_out]]*self.N_steps,
+            'v_in': [np.zeros((self.n_in, 1))]*self.N_steps,
+            'v_in_req': [np.zeros((self.n_in, 1))]*self.N_steps,
+            'v_in_max': [self.v_max/(self.n_in+self.n_out)*np.ones((self.n_in, 1))]*self.N_steps,
+            'cv_in': [[np.zeros((n_circuit_in_i, 1)) for n_circuit_in_i in self.n_circuit_in]]*self.N_steps,
+            's_buffer': [np.zeros((self.n_out, 1))]*self.N_steps,
+            's_transit': [np.zeros((self.n_out, 1))]*self.N_steps,
+            's_circuit': [np.zeros((np.sum(self.n_circuit_in), 1))]*self.N_steps,
+            'bandwidth_load': [np.zeros((1, 1))]*self.N_steps,
+            'memory_load': [np.zeros((1, 1))]*self.N_steps,
+            'bandwidth_load_target': [np.zeros((self.n_out, 1))]*self.N_steps,
+            'memory_load_target': [np.zeros((self.n_out, 1))]*self.N_steps,
+            'bandwidth_load_source': [np.zeros((self.n_in, 1))]*self.N_steps,
+            'memory_load_source': [np.zeros((self.n_in, 1))]*self.N_steps,
+        }]
 
     def initialize_record(self):
         self.record = {}
@@ -307,8 +293,8 @@ class optimal_traffic_scheduler:
         opts = {'ipopt.linear_solver': 'MA27'}
         self.optim = nlpsol('optim', 'ipopt', optim_dict, opts)
         # Create function to calculate buffer memory from parameter and optimization variable trajectories
-        self.aux_fun = Function('aux_fun', [s_buffer_0, s_circuit_0]+v_in_discard+v_in_extra+v_in_req+[j for i in cv_in for j in i]+v_out+[Pb, Pc],
-                                s_buffer+s_circuit+v_in_max+[j for i in cv_out for j in i])
+        self.aux_fun = Function('aux_fun', [s_buffer_0, s_circuit_0, s_transit_0]+v_tr_remove_unique+v_in_discard+v_in_extra+v_in_req+[j for i in cv_in for j in i]+v_out+[Pb, Pc],
+                                s_buffer+s_circuit+s_transit+v_in_max+[j for i in cv_out for j in i])
 
     def solve(self, s_buffer_0, s_circuit_0, s_transit_0, v_in_req, cv_in, v_out_max, bandwidth_load_target, memory_load_target, bandwidth_load_source, memory_load_source, output_delay):
         """
@@ -356,11 +342,11 @@ class optimal_traffic_scheduler:
         # For the first steps, extend the record, if necessary:
         if len_record < n_tr_remove_max:
             v_out_prev = np.concatenate((np.repeat(v_out_prev[:, [0]], n_tr_remove_max-len_record, axis=1), v_out_prev), axis=1)
-
-        v_tr_remove = [v_out_prev[n_tr_remove > i, i-n_tr_remove[n_tr_remove > i]].reshape(-1, 1) for i in range(n_tr_remove_max)]
+        v_tr_remove_unique = [v_out_prev[n_tr_remove > i, i-n_tr_remove[n_tr_remove > i]].reshape(-1, 1) for i in range(n_tr_remove_max)]
+        v_tr_remove_unique = [v_tr_remove_unique_i.reshape(-1, 1) for v_tr_remove_unique_i in np.concatenate(v_tr_remove_unique)]
 
         # Create concatented parameter vector:
-        param = np.concatenate((s_buffer_0, s_circuit_0, s_transit_0, *v_tr_remove, *v_in_req, *v_in_max_0, *[j for i in cv_in for j in i], *v_out_max, *v_out_0,
+        param = np.concatenate((s_buffer_0, s_circuit_0, s_transit_0, *v_tr_remove_unique, *v_in_req, *v_in_max_0, *[j for i in cv_in for j in i], *v_out_max, *v_out_0,
                                 self.Pb.reshape((-1, 1)), self.Pc.reshape((-1, 1)), *bandwidth_load_target,
                                 *memory_load_target, *bandwidth_load_source, *memory_load_source), axis=0)
         # Get initial condition:
@@ -377,10 +363,10 @@ class optimal_traffic_scheduler:
         v_in_discard = [v_in_discard_i.reshape(-1, 1) for v_in_discard_i in np.split(v_in_discard, self.N_steps)]
         v_in_extra = [v_in_extra_i.reshape(-1, 1) for v_in_extra_i in np.split(v_in_extra, self.N_steps)]
         # Calculate additional trajectories:
-        aux_values = self.aux_fun(s_buffer_0, s_circuit_0, *v_in_discard, *v_in_extra, *v_in_req, *[j for i in cv_in for j in i], *v_out, self.Pb, self.Pc)
+        aux_values = self.aux_fun(s_buffer_0, s_circuit_0, s_transit_0, *v_tr_remove_unique, *v_in_discard, *v_in_extra, *v_in_req, *[j for i in cv_in for j in i], *v_out, self.Pb, self.Pc)
         aux_values = [aux_i.full() for aux_i in aux_values]
         # s_buffer+s_circuit+[j for i in cv_out for j in i]
-        s_buffer, s_circuit, v_in_max, cv_out = self.split_list(aux_values, [self.N_steps, 2*self.N_steps, 3*self.N_steps])
+        s_buffer, s_circuit, s_transit, v_in_max, cv_out = self.split_list(aux_values, (np.array([1, 2, 3, 4])*self.N_steps).tolist())
         cv_out = self.split_list(cv_out, self.n_out)
         v_in = [v_in_req_i - v_in_discard_i for v_in_req_i, v_in_discard_i in zip(v_in_req, v_in_discard)]
 
@@ -402,6 +388,7 @@ class optimal_traffic_scheduler:
         self.predict[-1]['cv_out'] = cv_out
         self.predict[-1]['s_buffer'] = s_buffer
         self.predict[-1]['s_circuit'] = s_circuit
+        self.predict[-1]['s_transit'] = s_transit
         self.predict[-1]['bandwidth_load'] = bandwidth_load_node
         self.predict[-1]['memory_load'] = memory_load_node
         self.predict[-1]['bandwidth_load_target'] = np.copy(bandwidth_load_target)
