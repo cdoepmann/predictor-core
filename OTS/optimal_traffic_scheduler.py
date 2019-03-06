@@ -215,6 +215,7 @@ class optimal_traffic_scheduler:
         s_circuit_0 = SX.sym('s_circuit_0', np.sum(self.n_circuit_out), 1)
 
         # For v_tr_remove we need to consider the latency (roundtrip time) and the timestep of the optimizer:
+        # TODO: It would be better if the output_delay were a time varying parameter.
         n_tr_remove = np.int32(np.ceil(2*output_delay/self.dt)).tolist()
         assert all(output_delay > 0), 'Output delay cant be zero.'
         # We need one extra value for v_tr_remove since we are interpolating at each timestep.

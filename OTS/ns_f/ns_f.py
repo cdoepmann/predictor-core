@@ -78,15 +78,16 @@ class network:
         """ Settings """
         # Connections are processed in a loop and therefore packets in the input_buffer are sorted, even though they arrive during the same time interval.
         # To have a more realistic output_buffer it is adviced to shuffle the newly processed packets before they are added.
+        # TODO: Make settings available from outside.
         self.shuffle_incoming_packets = True
 
-        self.linear_growth_threshold = 10
+        self.linear_growth_threshold = 10  # TODO: Automatically adapt this depending on the max bandwidth of the node.
 
         self.shuffle_connection_processing = True
 
-        self.t_transmission = []
+        self.t_transmission = []  # TODO: Remove?
 
-        self.control_mode = 'ots'
+        self.control_mode = 'ots'  # TODO: This should not be here?
 
     def from_circuits(self, circuits, packet_list_size=1000):
         self.connections, self.nodes = self.circ_2_network(circuits)
@@ -131,6 +132,7 @@ class network:
 
         for k, node_k in self.nodes.iterrows():
             # Boolean array that indicates in which connections node_k is the source.
+            # This might be confusing as 'con_source' is used to filter the outgoing connections of the node (=in which connection is the node the source)
             node_k['con_source'] = (self.connections['source'] == node_k['node']).values
             node_k['n_out'] = sum(node_k['con_source'])
             if any(node_k['con_source']):
@@ -141,7 +143,7 @@ class network:
                 node_k['output_circuits'] = self.connections.loc[node_k['con_source'], 'circuit'].tolist()
 
             # Boolean array that indicates in which connections node_k is the target. This determines the
-            # number of inputs.
+            # number of inputs. Again confusing: con_target = incoming connections.
             node_k['con_target'] = (self.connections['target'] == node_k['node']).values
             node_k['input_circuits'] = self.connections.loc[node_k['con_target'], 'circuit'].tolist()
             node_k['n_in'] = sum(node_k['con_target'])
@@ -176,6 +178,7 @@ class network:
             if self.control_mode is 'tcp':
                 # If the current window is smaller than the allowed window size:
                 if len(con.prop.window) < int(con.prop.window_size):
+                    # Everything in the source buffer that is not currently in the window can be send:
                     send_candidate_ind = self.remove_from_list(source_buffer, con.prop.window)
                     n_send = int(min(con.prop.window_size-len(con.prop.window), len(send_candidate_ind), con.source.v_max*self.dt))
                     send_ind = send_candidate_ind[:n_send]
@@ -214,6 +217,7 @@ class network:
                 self.data.packet_list.loc[received_ind, 'ts'] = np.inf
                 # Remove packages from transit, including those that were not accepted in the buffer.
                 con.prop.transit = self.remove_from_list(con.prop.transit, received_candidate_ind)
+                # TODO: Check if calculation of dropped packets is properly executed. (Try if TCP control drops packets)
                 # Note if packets were dropped:
                 dropped_ind = self.remove_from_list(received_candidate_ind, received_ind)
                 self.data.packet_list.loc[dropped_ind, 'n_dropped'] += 1
@@ -249,6 +253,8 @@ class network:
             con.target.input_buffer[con.target_ind] = target_buffer
 
         """ Process the newly arrived packages in the server """
+        # TODO: Consider if we want to take into account processing time. Currently packets are always for one timestep in the node.
+        # -> they cant be received and send in the same timestep.
         for i, nod in self.nodes.iterrows():
             # concatenate all input buffers
             input_buffer_ind = sum(nod.node.input_buffer, [])
@@ -286,12 +292,12 @@ class network:
     def run_ots(self):
         """
         a) Measure the current state of the network:
-        This populates the columns 's_circuit' and 's_buffer' of the self.nodes DataFrame.
+        This populates the columns 's_circuit', 's_buffer' and 's_transit' of the self.nodes DataFrame.
         """
         self.make_measurement()
 
         """
-         b) Determine associated properties for every connection that are determined by the source and target:
+         b) Determine associated properties for every connection by checking the source and target:
         """
         # Packet stream is depending on the source. Create [N_timesteps x n_outputs x 1] array (with np.stack())
         # and access the element that is stored in 'output_ind' for each connection.
@@ -420,6 +426,7 @@ class network:
         if row['node'].output_buffer:
             sb = [len(buffer_i) for buffer_i in row['node'].output_buffer]
             st = self.connections.loc[row.con_source].apply(lambda con: len(con.prop.transit)+len(con.prop.transit_reply), axis=1).tolist()
+            # TODO: Think about whether this buffer size should be reduced by the transit size or not.
             #sb = [sb_i-st_i for sb_i, st_i in zip(sb, st)]
         else:
             sb = len(row['node'].output_buffer)
