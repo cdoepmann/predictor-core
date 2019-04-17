@@ -71,7 +71,7 @@ class ots_plotter:
                 lines.append(self.ax[out_k+offset, 0].step(pred_time, predict['v_out'][out_k], color=self.color[1], linestyle='--'))
                 self.ax[out_k+offset, 0].legend([line[0] for line in lines[-6:]], ['Recorded', 'Incoming', 'Outoing', 'Predicted', 'Incoming', 'Outgoing'],
                                                 loc='upper left', ncol=2, title='Package Streams')
-                self.ax[out_k+offset, 0].set_ylim([0, ots_i.v_max*1.1])
+                self.ax[out_k+offset, 0].set_ylim([0, max(ots_i.v_in_max_total, ots_i.v_out_max_total)*1.1])
 
                 """Diagram 02: Buffer Memory. """
                 self.ax[out_k+offset, 1].set_title('Server {0}, Output buffer {1}'.format(server_i+1, out_k+1))

@@ -7,8 +7,11 @@ from scipy.linalg import block_diag
 
 class optimal_traffic_scheduler:
     def __init__(self, setup_dict, name='ots', record_values=True):
+        # Legacy check:
+        assert 'v_max' not in setup_dict.keys(), 'Updated Framework where v_max paramter is not longer supported for ots init. Use v_in_max_total and v_out_max_total instead.'
         self.obj_name = name
-        self.v_max = setup_dict['v_max']
+        self.v_in_max_total = setup_dict['v_in_max_total']
+        self.v_out_max_total = setup_dict['v_out_max_total']
         self.s_max = setup_dict['s_max']
         self.dt = setup_dict['dt']
         self.N_steps = setup_dict['N_steps']
@@ -44,15 +47,15 @@ class optimal_traffic_scheduler:
         self.create_optim(output_delay)
 
     def initialize_prediction(self):
-        # Initial conditions: all zeros.
+        # Initial conditions:
         self.predict = [{
             'v_out': [np.zeros((self.n_out, 1))]*self.N_steps,
-            'v_out_max': [np.zeros((self.n_out, 1))]*self.N_steps,
+            'v_out_max': [self.v_out_max_total/(self.n_out)*np.ones((self.n_out, 1))]*self.N_steps,
             'cv_out': [[np.zeros((n_circuit_out_i, 1)) for n_circuit_out_i in self.n_circuit_out]]*self.N_steps,
             'v_in': [np.zeros((self.n_in, 1))]*self.N_steps,
             'v_in_req': [np.zeros((self.n_in, 1))]*self.N_steps,
-            'v_in_max': [self.v_max/(self.n_in+self.n_out)*np.ones((self.n_in, 1))]*self.N_steps,
-            'cv_in': [[np.zeros((n_circuit_in_i, 1)) for n_circuit_in_i in self.n_circuit_in]]*self.N_steps,
+            'v_in_max': [self.v_in_max_total/(self.n_in)*np.ones((self.n_in, 1))]*self.N_steps,
+            'cv_in': [[np.ones((n_circuit_in_i, 1))/n_circuit_in_i for n_circuit_in_i in self.n_circuit_in]]*self.N_steps,
             's_buffer': [np.zeros((self.n_out, 1))]*self.N_steps,
             's_transit': [np.zeros((self.n_out, 1))]*self.N_steps,
             's_circuit': [np.zeros((np.sum(self.n_circuit_in), 1))]*self.N_steps,
@@ -144,8 +147,8 @@ class optimal_traffic_scheduler:
         s_transit_next = s_transit + self.dt*(v_out - v_tr_remove)
 
         cons_list = [
-            #{'lb': [-np.inf], 'eq': sum1(v_in)+sum1(v_out) - self.v_max, 'ub': [0]},
-            {'lb': [-np.inf], 'eq': sum1(v_in_max)+sum1(v_out)-self.v_max, 'ub': [0]},
+            {'lb': [-np.inf], 'eq': sum1(v_in_max)-self.v_in_max_total, 'ub': [0]},
+            {'lb': [-np.inf], 'eq': sum1(v_out)-self.v_out_max_total, 'ub': [0]},
             {'lb': [-np.inf]*self.n_in, 'eq': -v_in, 'ub': [0]*self.n_in},  # v_in cant be negative
             {'lb': [-np.inf]*self.n_in, 'eq': -v_in_discard, 'ub': [0]*self.n_in},  # discarded packet stream cant be negative
             {'lb': [-np.inf]*self.n_in, 'eq': -v_in_extra, 'ub': [0]*self.n_in},  # additional incoming packet stream cant be negative
@@ -161,9 +164,9 @@ class optimal_traffic_scheduler:
         cons_ub = np.concatenate([con_i['ub'] for con_i in cons_list])
 
         # Maximize bandwidth  and maximize buffer:(under consideration of outgoing server load)
-        obj = sum1((1-bandwidth_load_target)*(1-memory_load_target)*(-self.weights['send']*v_out/self.v_max+self.weights['store']*s_buffer/self.s_max))
-        obj += sum1((1+bandwidth_load_source*memory_load_source)*(self.weights['receive']*(v_in_discard-v_in_extra)/self.v_max))
-        obj += self.weights['control_delta']*(sum1(((v_out-v_out_prev)/self.v_max)**2)+sum1(((v_in_max-v_in_max_prev)/self.v_max)**2))
+        obj = sum1((1-bandwidth_load_target)*(1-memory_load_target)*(-self.weights['send']*v_out/self.v_out_max_total+self.weights['store']*s_buffer/self.s_max))
+        obj += sum1((1+bandwidth_load_source*memory_load_source)*(self.weights['receive']*(v_in_discard-v_in_extra)/self.v_in_max_total))
+        obj += self.weights['control_delta']*(sum1(((v_out-v_out_prev)/self.v_out_max_total)**2)+sum1(((v_in_max-v_in_max_prev)/self.v_in_max_total)**2))
 
         """ Problem dictionary """
         mpc_problem = {}
@@ -378,11 +381,10 @@ class optimal_traffic_scheduler:
 
         s_buffer, s_circuit, s_transit, v_in_max, cv_out = self.split_list(aux_values, (np.array([1, 2, 3, 4])*self.N_steps).tolist())
         cv_out = self.split_list(cv_out, self.n_out)
-
         v_in = [v_in_req_i - v_in_discard_i for v_in_req_i, v_in_discard_i in zip(v_in_req, v_in_discard)]
 
         # Calculate trajectory for bandwidth and memory:
-        bandwidth_load_node = [(np.sum(v_out_i, keepdims=True)+np.sum(v_in_i, keepdims=True))/self.v_max for v_out_i,
+        bandwidth_load_node = [(np.sum(v_out_i, keepdims=True)+np.sum(v_in_i, keepdims=True))/(self.v_in_max_total+self.v_out_max_total) for v_out_i,
                                v_in_i in zip(v_out, v_in)]
 
         memory_load_node = [np.sum(s_buffer_i, keepdims=True)/self.s_max for s_buffer_i in s_buffer]
@@ -544,7 +546,10 @@ class optimal_traffic_scheduler:
 class ots_client(optimal_traffic_scheduler):
     def __init__(self, setup_dict, name='ots_client', record_values=True):
         self.obj_name = name
-        self.v_max = setup_dict['v_max']
+        # Legacy check:
+        assert 'v_max' not in setup_dict.keys(), 'Updated Framework where v_max paramter is not longer supported for ots init. Use v_in_max_total and v_out_max_total instead.'
+        self.v_in_max_total = setup_dict['v_in_max_total']
+        self.v_out_max_total = setup_dict['v_out_max_total']
         self.s_max = setup_dict['s_max']
         self.dt = setup_dict['dt']
         self.N_steps = setup_dict['N_steps']

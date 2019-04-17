@@ -9,7 +9,9 @@ from optimal_traffic_scheduler import optimal_traffic_scheduler
 setup_dict = {}
 setup_dict['n_in'] = 2
 setup_dict['n_out'] = 2
-setup_dict['v_max'] = 20  # mb/s
+# NOTE: Not tested with new v_max formulation.
+setup_dict['v_in_max_total'] = 20  # packets/s
+setup_dict['v_out_max_total'] = 20  # packets/s
 setup_dict['s_max'] = 200  # mb
 setup_dict['dt'] = 1  # s
 setup_dict['N_steps'] = 40

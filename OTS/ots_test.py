@@ -4,7 +4,8 @@ from optimal_traffic_scheduler import optimal_traffic_scheduler
 import pdb
 
 setup_dict = {}
-setup_dict['v_max'] = 20  # packets / s
+setup_dict['v_in_max_total'] = 20  # packets / s
+setup_dict['v_out_max_total'] = 20  # packets / s
 setup_dict['s_max'] = 200  # packets
 setup_dict['dt'] = 0.1  # s
 setup_dict['N_steps'] = 20
@@ -65,11 +66,11 @@ ax[1, 0].step(range(20), np.concatenate(ots.predict[-1]['v_out'], axis=1).T)
 ax[1, 1].step(range(20), np.concatenate(ots.predict[-1]['v_in'], axis=1).T)
 ax[1, 2].step(range(20), np.concatenate(ots.predict[-1]['s_buffer'], axis=1).T)
 
-ax[0, 0].set_ylim(bottom=-0.1, top=setup_dict['v_max'])
-ax[0, 1].set_ylim(bottom=-0.1, top=setup_dict['v_max'])
+ax[0, 0].set_ylim(bottom=-0.1, top=setup_dict['v_out_max_total'])
+ax[0, 1].set_ylim(bottom=-0.1, top=setup_dict['v_in_max_total'])
 ax[0, 2].set_ylim(bottom=-1, top=setup_dict['s_max'])
-ax[1, 0].set_ylim(bottom=-0.1, top=setup_dict['v_max'])
-ax[1, 1].set_ylim(bottom=-0.1, top=setup_dict['v_max'])
+ax[1, 0].set_ylim(bottom=-0.1, top=setup_dict['v_out_max_total'])
+ax[1, 1].set_ylim(bottom=-0.1, top=setup_dict['v_in_max_total'])
 ax[1, 2].set_ylim(bottom=-1, top=setup_dict['s_max'])
 
 ax[0, 0].set_title('Outgoing packets')
