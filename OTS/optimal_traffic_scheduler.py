@@ -7,12 +7,28 @@ from scipy.linalg import block_diag
 
 class optimal_traffic_scheduler:
     def __init__(self, setup_dict, name='ots', record_values=True):
+        """
+        Expected in setup_dict:
+        v_in_max_total - Upper limit for the sum of all incoming packets from all incoming connections (in packets/s)
+        v_out_max_total - Upper limit for the sum of all outgoing packets from all outgoing connections (in packets/s)
+        s_softmax - Choose s_softmax sucht that np.sum(s_buffer)/s_softmax is usually in the range of 0 and 1. This can, however, be exceeded.
+            The value is used for scaling and will directly influence the cost function and thus the OTS behavior.
+        dt - Timestep (in seconds) of the optimizer.
+        N_steps - Horizon of the MPC optimization
+        weights - Dict with the keys (and suggested values): {'control_delta': 0.1, 'send': 1, 'store': 0, 'receive': 1}
+            send - Focus on sending packets.
+            store - Focus on keeping the buffer as low as possible. Not recommended as the desired effect is achieved with 'send'.
+            receive - Focus on receiving packets: Avoid discarding packets and allow for additional packets to be sent.
+            control_delta - Predictions of the current node are communicated and incorporated in connected nodes. control_delta penalizes
+                rapid changes of the node behavior. This is important for stability of the distributed system.
+        """
         # Legacy check:
         assert 'v_max' not in setup_dict.keys(), 'Updated Framework where v_max paramter is not longer supported for ots init. Use v_in_max_total and v_out_max_total instead.'
+        assert 's_max' not in setup_dict.keys(), 'Updated Framework where s_max parameter is not longer supported for ots init. Use s_softmax instead. Choose s_softmax sucht that np.sum(s_buffer)/s_softmax is usually in the range of 0 and 1. This can, however, be exceeded.'
         self.obj_name = name
         self.v_in_max_total = setup_dict['v_in_max_total']
         self.v_out_max_total = setup_dict['v_out_max_total']
-        self.s_max = setup_dict['s_max']
+        self.s_softmax = setup_dict['s_softmax']
         self.dt = setup_dict['dt']
         self.N_steps = setup_dict['N_steps']
         self.weights = setup_dict['weights']
@@ -154,8 +170,6 @@ class optimal_traffic_scheduler:
             {'lb': [-np.inf]*self.n_in, 'eq': -v_in_extra, 'ub': [0]*self.n_in},  # additional incoming packet stream cant be negative
             {'lb': [-eps]*self.n_in, 'eq': v_in_discard*v_in_extra, 'ub': [eps]*self.n_in},  # packets can be discarded or added (not both). Should be zero but is better to be within a certain tolerance.
             {'lb': [-np.inf]*self.n_out, 'eq': -s_buffer, 'ub': [0]*self.n_out},  # buffer memory cant be <0 (for each output buffer)
-            {'lb': [-np.inf], 'eq': sum1(s_buffer)-self.s_max, 'ub': [0]},  # buffer memory cant exceed s_max
-            # {'lb': [-np.inf], 'eq': sum1(s_buffer)+sum1(s_transit)-self.s_max, 'ub': [0]},  # TODO: This should be the prefered constraint but makes problems.
             {'lb': [-np.inf]*self.n_out, 'eq': -v_out, 'ub': [0]*self.n_out},  # outgoing packet stream cant be negative
             {'lb': [-np.inf]*self.n_out, 'eq': v_out-v_out_max, 'ub': [0]*self.n_out},  # outgoing packet stream cant be negative
         ]
@@ -164,7 +178,7 @@ class optimal_traffic_scheduler:
         cons_ub = np.concatenate([con_i['ub'] for con_i in cons_list])
 
         # Maximize bandwidth  and maximize buffer:(under consideration of outgoing server load)
-        obj = sum1((1-bandwidth_load_target)*(1-memory_load_target)*(-self.weights['send']*v_out/self.v_out_max_total+self.weights['store']*s_buffer/self.s_max))
+        obj = sum1((1-bandwidth_load_target)/(1+memory_load_target)*(-self.weights['send']*v_out/self.v_out_max_total+self.weights['store']*s_buffer/self.s_softmax))
         obj += sum1((1+bandwidth_load_source*memory_load_source)*(self.weights['receive']*(v_in_discard-v_in_extra)/self.v_in_max_total))
         obj += self.weights['control_delta']*(sum1(((v_out-v_out_prev)/self.v_out_max_total)**2)+sum1(((v_in_max-v_in_max_prev)/self.v_in_max_total)**2))
 
@@ -387,7 +401,7 @@ class optimal_traffic_scheduler:
         bandwidth_load_node = [(np.sum(v_out_i, keepdims=True)+np.sum(v_in_i, keepdims=True))/(self.v_in_max_total+self.v_out_max_total) for v_out_i,
                                v_in_i in zip(v_out, v_in)]
 
-        memory_load_node = [np.sum(s_buffer_i, keepdims=True)/self.s_max for s_buffer_i in s_buffer]
+        memory_load_node = [np.sum(s_buffer_i, keepdims=True)/self.s_softmax for s_buffer_i in s_buffer]
 
         """ Advance time and record values """
         self.time = self.time + self.dt
@@ -547,10 +561,11 @@ class ots_client(optimal_traffic_scheduler):
     def __init__(self, setup_dict, name='ots_client', record_values=True):
         self.obj_name = name
         # Legacy check:
-        assert 'v_max' not in setup_dict.keys(), 'Updated Framework where v_max paramter is not longer supported for ots init. Use v_in_max_total and v_out_max_total instead.'
+        assert 'v_max' not in setup_dict.keys(), 'Updated Framework where v_max parameter is not longer supported for ots init. Use v_in_max_total and v_out_max_total instead.'
+        assert 's_max' not in setup_dict.keys(), 'Updated Framework where s_max parameter is not longer supported for ots init. Use s_softmax instead. Choose s_softmax sucht that np.sum(s_buffer)/s_softmax is usually in the range of 0 and 1. This can, however, be exceeded.'
         self.v_in_max_total = setup_dict['v_in_max_total']
         self.v_out_max_total = setup_dict['v_out_max_total']
-        self.s_max = setup_dict['s_max']
+        self.s_softmax = setup_dict['s_softmax']
         self.dt = setup_dict['dt']
         self.N_steps = setup_dict['N_steps']
         self.record_values = record_values

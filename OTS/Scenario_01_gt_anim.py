@@ -9,7 +9,7 @@ import pdb
 setup_dict = {}
 setup_dict['v_in_max_total'] = 20  # packets / s
 setup_dict['v_out_max_total'] = 20  # packets / s
-setup_dict['s_max'] = 30  # packets
+setup_dict['s_softmax'] = 30  # packets
 setup_dict['dt'] = 1  # s
 setup_dict['N_steps'] = 20
 setup_dict['v_delta_penalty'] = 3

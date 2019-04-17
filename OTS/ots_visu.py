@@ -79,7 +79,7 @@ class ots_plotter:
                 lines.append(self.ax[out_k+offset, 1].step(record['time'][0], record['s'][out_k], color=self.color[0]))
                 lines.append(self.ax[out_k+offset, 1].step(pred_time, predict['s'][out_k], color=self.color[0], linestyle='--'))
                 self.ax[out_k+offset, 1].legend([line[0] for line in lines[-3:]], ['Buffer Memory', 'Recorded', 'Predicted'], loc='upper left')
-                self.ax[out_k+offset, 1].set_ylim([0, ots_i.s_max*1.1])
+                self.ax[out_k+offset, 1].set_ylim([0, ots_i.s_softmax*1.1])
 
                 """Diagram 03: Load. """
                 lines.append(self.ax[out_k+offset, 2].plot([], [], linewidth=0))  # Dummy to get legend entry
