@@ -6,8 +6,8 @@ import pdb
 setup_dict = {}
 setup_dict['v_in_max_total'] = 20  # packets / s
 setup_dict['v_out_max_total'] = 20  # packets / s
-setup_dict['s_max'] = 200  # packets
-setup_dict['dt'] = 0.1  # s
+setup_dict['s_softmax'] = 200  # packets
+setup_dict['dt'] = 0.01  # s
 setup_dict['N_steps'] = 20
 setup_dict['weights'] = {'control_delta': 0.1, 'send': 1, 'store': 0, 'receive': 1}
 
@@ -15,10 +15,10 @@ ots = optimal_traffic_scheduler(setup_dict)
 
 
 # Lets assume the following:
-circuits_in = [[0, 1, 2], [3, 4]]
-circuits_out = [[1, 3], [0], [2, 4]]
+circuits_in = [[0, 1], [2]]
+circuits_out = [[0], [1], [2]]
 
-output_delay = np.array([0.2, 0.2, 0.2])
+output_delay = np.array([0.04, 0.04, 0.04])
 
 n_in = len(circuits_in)
 n_out = len(circuits_out)
@@ -38,7 +38,7 @@ s_circuit_0 = np.zeros((np.sum(n_circuit_in), 1))
 
 v_in_req = [np.array([[10, 3]]).T]*ots.N_steps
 
-cv_in = [[np.array([[0.5, 0.25, 0.25]]).T, np.array([[0.5, 0.5]]).T]]*ots.N_steps
+cv_in = [[np.array([[0.5, 0.5]]).T, np.array([[1]]).T]]*ots.N_steps
 
 
 v_out_max = [np.array([[5, 5, 5]]).T]*ots.N_steps
@@ -68,10 +68,10 @@ ax[1, 2].step(range(20), np.concatenate(ots.predict[-1]['s_buffer'], axis=1).T)
 
 ax[0, 0].set_ylim(bottom=-0.1, top=setup_dict['v_out_max_total'])
 ax[0, 1].set_ylim(bottom=-0.1, top=setup_dict['v_in_max_total'])
-ax[0, 2].set_ylim(bottom=-1, top=setup_dict['s_max'])
+ax[0, 2].set_ylim(bottom=-1, top=setup_dict['s_softmax'])
 ax[1, 0].set_ylim(bottom=-0.1, top=setup_dict['v_out_max_total'])
 ax[1, 1].set_ylim(bottom=-0.1, top=setup_dict['v_in_max_total'])
-ax[1, 2].set_ylim(bottom=-1, top=setup_dict['s_max'])
+ax[1, 2].set_ylim(bottom=-1, top=setup_dict['s_softmax'])
 
 ax[0, 0].set_title('Outgoing packets')
 ax[0, 1].set_title('Incoming packets')
