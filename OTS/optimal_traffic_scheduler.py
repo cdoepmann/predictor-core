@@ -344,6 +344,10 @@ class optimal_traffic_scheduler:
         "Solve" also advances the time of the node by one time_step.
         """
 
+        """ Check if inputs are valid """
+        assert np.isclose(np.sum(s_buffer_0), np.sum(s_circuit_0)), 'Inconsistent initial conditions.'
+        # TODO: Continue checks, add option to avoid checks.
+
         """ Get previous solution and shift to current timestep:"""
         v_out_prev_pred = self.predict[-1]['v_out']
         v_in_max_prev = self.predict[-1]['v_in_max']
