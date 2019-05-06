@@ -18,8 +18,6 @@ ots = optimal_traffic_scheduler(setup_dict)
 circuits_in = [[0, 1], [2]]
 circuits_out = [[0], [1], [2]]
 
-output_delay = np.array([0.04, 0.04, 0.04])
-
 n_in = len(circuits_in)
 n_out = len(circuits_out)
 
@@ -27,14 +25,14 @@ n_circuit_in = [len(c_i) for c_i in circuits_in]
 
 n_circuit_out = [len(c_i) for c_i in circuits_out]
 
-ots.setup(n_in, n_out, circuits_in, circuits_out, output_delay=output_delay)
+ots.setup(n_in, n_out, circuits_in, circuits_out)
 
 
 # Create some dummy data:
 s_buffer_0 = np.zeros((n_out, 1))
 s_buffer_0[0] = 50
-s_transit_0 = np.zeros((n_out, 1))
 s_circuit_0 = np.zeros((np.sum(n_circuit_in), 1))
+s_circuit_0[0] = 50
 
 v_in_req = [np.array([[10, 3]]).T]*ots.N_steps
 
@@ -51,7 +49,7 @@ memory_load_source = [np.array([[0, 0]]).T]*ots.N_steps
 
 
 # Call the solver:
-ots.solve(s_buffer_0, s_circuit_0, s_transit_0, v_in_req, cv_in, v_out_max, bandwidth_load_target, memory_load_target, bandwidth_load_source, memory_load_source, output_delay)
+ots.solve(s_buffer_0, s_circuit_0, v_in_req, cv_in, v_out_max, bandwidth_load_target, memory_load_target, bandwidth_load_source, memory_load_source)
 
 
 fig, ax = plt.subplots(2, 3, sharex=True, figsize=[16, 9])
