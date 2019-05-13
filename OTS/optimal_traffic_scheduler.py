@@ -279,7 +279,7 @@ class optimal_traffic_scheduler:
 
         # TODO: Make optimization option available to user.
         # Create casadi optimization object:
-        opts = {'ipopt.linear_solver': 'MA27'}
+        opts = {'ipopt.linear_solver': 'MA27', 'error_on_fail': True}
         self.optim = nlpsol('optim', 'ipopt', optim_dict, opts)
         # Create function to calculate buffer memory from parameter and optimization variable trajectories
         self.aux_fun = Function('aux_fun', [s_buffer_0, s_circuit_0]+v_in_discard+v_in_extra+v_in_req+[j for i in cv_in for j in i]+v_out+[Pb, Pc],
@@ -384,7 +384,7 @@ class optimal_traffic_scheduler:
             self.record_fun()
 
         if not optim_stats['success']:
-            pdb.set_trace()
+            raise Exception(optim_stats['success'])
         return optim_stats['success']
 
     def record_fun(self):
