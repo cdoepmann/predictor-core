@@ -7,7 +7,7 @@ from scipy.linalg import block_diag
 
 
 class optimal_traffic_scheduler:
-    def __init__(self, setup_dict, name='ots', record_values=True):
+    def __init__(self, setup_dict, name='ots', record_values=True, silent=False):
         """
         Expected in setup_dict:
         ----------------------------------
@@ -35,6 +35,8 @@ class optimal_traffic_scheduler:
         self.weights = setup_dict['weights']
         self.record_values = record_values
         self.time = np.array([[0]])  # 1,1 array for consistency.
+
+        self.silent = silent
 
     def setup(self, n_in=None, n_out=None, input_circuits=None, output_circuits=None):
         """
@@ -340,6 +342,10 @@ class optimal_traffic_scheduler:
         # Create casadi optimization object:
         opts = {'ipopt.linear_solver': 'ma27', 'error_on_fail': True}
         self.optim = nlpsol('optim', 'ipopt', optim_dict, opts)
+        if self.silent:
+            opts['ipopt.print_level'] = 0;
+            opts['ipopt.sb'] = "yes";
+            opts['print_time'] = 0;
 
         # Create function to calculate buffer memory from parameter and optimization variable trajectories
         self.aux_fun = Function('aux_fun', [mpc_obj_x, mpc_obj_p], [mpc_obj_aux])
