@@ -6,7 +6,6 @@ import pdb
 setup_dict = {}
 setup_dict['v_in_max_total'] = 20  # packets / s
 setup_dict['v_out_max_total'] = 20  # packets / s
-setup_dict['s_softmax'] = 200  # packets
 setup_dict['dt'] = 0.01  # s
 setup_dict['N_steps'] = 20
 setup_dict['weights'] = {'control_delta': 0.1, 'send': 1, 'store': 0, 'receive': 1}

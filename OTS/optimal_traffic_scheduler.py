@@ -10,26 +10,26 @@ class optimal_traffic_scheduler:
     def __init__(self, setup_dict, name='ots', record_values=True):
         """
         Expected in setup_dict:
-        v_in_max_total - Upper limit for the sum of all incoming packets from all incoming connections (in packets/s)
-        v_out_max_total - Upper limit for the sum of all outgoing packets from all outgoing connections (in packets/s)
-        s_softmax - Choose s_softmax sucht that np.sum(s_buffer)/s_softmax is usually in the range of 0 and 1. This can, however, be exceeded.
-            The value is used for scaling and will directly influence the cost function and thus the OTS behavior.
-        dt - Timestep (in seconds) of the optimizer.
-        N_steps - Horizon of the MPC optimization
-        weights - Dict with the keys (and suggested values): {'control_delta': 0.1, 'send': 1, 'store': 0, 'receive': 1}
-            send - Focus on sending packets.
-            store - Focus on keeping the buffer as low as possible. Not recommended as the desired effect is achieved with 'send'.
-            receive - Focus on receiving packets: Avoid discarding packets and allow for additional packets to be sent.
-            control_delta - Predictions of the current node are communicated and incorporated in connected nodes. control_delta penalizes
-                rapid changes of the node behavior. This is important for stability of the distributed system.
+        ----------------------------------
+        v_in_max_total         - Upper limit for the sum of all incoming packets from all incoming connections (in packets/s)
+        v_out_max_total        - Upper limit for the sum of all outgoing packets from all outgoing connections (in packets/s)
+        dt                     - Timestep (in seconds) of the optimizer.
+        N_steps                - Horizon of the MPC optimization
+        weights                - Dict with the keys (and suggested values): {'control_delta': 0.1, 'send': 1, 'store': 0, 'receive': 1}
+            send                   - Focus on sending packets.
+            store                  - Focus on keeping the buffer as low as possible. Not recommended as the desired effect is achieved with 'send'.
+            receive                - Focus on receiving packets: Avoid discarding packets and allow for additional packets to be sent.
+            control_delta          - Predictions of the current node are communicated and incorporated in connected nodes. control_delta penalizes
+                                     rapid changes of the node behavior. This is important for stability of the distributed system.
+        ----------------------------------
         """
         # Legacy check:
         assert 'v_max' not in setup_dict.keys(), 'Updated Framework where v_max paramter is not longer supported for ots init. Use v_in_max_total and v_out_max_total instead.'
-        assert 's_max' not in setup_dict.keys(), 'Updated Framework where s_max parameter is not longer supported for ots init. Use s_softmax instead. Choose s_softmax sucht that np.sum(s_buffer)/s_softmax is usually in the range of 0 and 1. This can, however, be exceeded.'
+        assert 's_max' not in setup_dict.keys(), 'Updated Framework where s_max parameter is not longer supported for ots init.'
+
         self.obj_name = name
         self.v_in_max_total = setup_dict['v_in_max_total']
         self.v_out_max_total = setup_dict['v_out_max_total']
-        self.s_softmax = setup_dict['s_softmax']
         self.dt = setup_dict['dt']
         self.N_steps = setup_dict['N_steps']
         self.weights = setup_dict['weights']
@@ -38,10 +38,10 @@ class optimal_traffic_scheduler:
 
     def setup(self, n_in=None, n_out=None, input_circuits=None, output_circuits=None):
         """
-        n_in: Number of Inputs
-        n_out: Number of outputs
-        input_circuits: List with each item being a list of identifiers for the input circuits
-        output_circuits: List with each item being a list of identifiers for the output circuits
+        n_in:             Number of Inputs
+        n_out:            Number of outputs
+        input_circuits:   List with each item being a list of identifiers for the input circuits
+        output_circuits:  List with each item being a list of identifiers for the output circuits
         """
 
         self.n_in = n_in
@@ -93,80 +93,85 @@ class optimal_traffic_scheduler:
 
     def problem_formulation(self):
         """ MPC states for stage k"""
-        mpc_xk = struct_symSX([
+        self.mpc_xk = struct_symSX([
             entry('s_buffer', shape=(self.n_out, 1)),
             entry('s_circuit', shape=(np.sum(self.n_circuit_in), 1)),
         ])
         """ MPC control inputs for stage k"""
-        mpc_uk = struct_symSX([
-            entry('v_in_req', shape=(self.n_in, 1)),
+        self.mpc_uk = struct_symSX([
             entry('v_in_discard', shape=(self.n_in, 1)),
             entry('v_in_extra', shape=(self.n_in, 1)),
             entry('v_out', shape=(self.n_out, 1)),
         ])
-        """ MPC parameters for stage k"""
-        cv_in = struct_symSX([entry(str(i), shape=(self.n_circuit_in[i], 1)) for i in range(self.n_in)])
-        mpc_pk = struct_symSX([
-            entry('v_in_max_prev', shape=(self.n_in, 1)),
-            entry('cv_in', struct=cv_in),
+        """ MPC time-varying parameters for stage k"""
+        # Dummy struct:
+        cv_in_struct = struct_symSX([
+            entry('c_'+str(i), shape=(self.n_circuit_in[i], 1)) for i in range(self.n_in)
+        ])
+        self.mpc_tvpk = struct_symSX([
+            entry('u_prev', struct=self.mpc_uk),
+            entry('v_in_req', shape=(self.n_in, 1)),
+            entry('cv_in', struct=cv_in_struct),
             entry('v_out_max', shape=(self.n_out, 1)),
-            entry('v_out_prev', shape=(self.n_out, 1)),
             entry('bandwidth_load_target', shape=(self.n_out, 1)),
-            entry('memory_load_target', shape=(self.n_out, 1)),
+            entry('s_buffer_target', shape=(self.n_out, 1)),
             entry('bandwidth_load_source', shape=(self.n_in, 1)),
-            entry('memory_load_source', shape=(self.n_in, 1)),
+            entry('s_buffer_source', shape=(self.n_in, 1)),
+        ])
+        """ MPC parameters for stage k"""
+        self.mpc_pk = struct_symSX([
             entry('Pb', shape=(self.n_out, np.sum(self.n_circuit_in))),
             entry('Pc', shape=(np.sum(self.n_circuit_in), np.sum(self.n_circuit_in))),
         ])
 
         """ Memory """
         # Buffer memory
-        s_buffer = mpc_xk['s_buffer']
+        s_buffer = self.mpc_xk['s_buffer']
         # Circuit memory:
-        s_circuit = mpc_xk['s_circuit']
+        s_circuit = self.mpc_xk['s_circuit']
 
         """ Incoming packet stream """
 
         # Incoming package stream for each buffer:
-        v_in_req = mpc_uk['v_in_req']
+        v_in_req = self.mpc_tvpk['v_in_req']
         # Discarded packet stream:
-        v_in_discard = mpc_uk['v_in_discard']
+        v_in_discard = self.mpc_uk['v_in_discard']
         # Additional packet contigent that could be accepted.
-        v_in_extra = mpc_uk['v_in_extra']
+        v_in_extra = self.mpc_uk['v_in_extra']
         # v_in_max from previous solution
-        v_in_max_prev = mpc_pk['v_in_max_prev']
+        # v_in_max_prev = self.mpc_tvpk['u_prev', 'v_in_max']
         # Resulting incoming packet stream:
         v_in = v_in_req - v_in_discard
         # Allowed incoming packet stream:
         v_in_max = v_in + v_in_extra
-        # Composition of incoming stream cv_in (defined above)
-
+        # Composition of incoming stream cv_in (note that .prefix allows to use struct_symSX power indices).
+        cv_in = self.mpc_tvpk.prefix['cv_in']
         # Incoming packet stream (on circuit level) (multiplying each incoming stream (scalar) with the respective composition vector)
-        vc_in = vertcat(*[v_in[i]*cv_in[str(i)] for i in range(self.n_in)])
+        vc_in = vertcat(*[v_in[i]*cv_in['c_'+str(i)] for i in range(self.n_in)])
 
         """ Outgoing packet stream """
         # Outgoing packet stream:
-        v_out = mpc_xk['v_out']
+        v_out = self.mpc_uk['v_out']
         # Maximum value for v_out (determined by target server):
-        v_out_max = mpc_pk['v_out_max']
+        v_out_max = self.mpc_tvpk['v_out_max']
         # Outgoing packet stream (as list)
         v_out_list = vertsplit(v_out)
         # v_out from the previous solution:
-        v_out_prev = mpc_pk['v_out_prev']
+        # v_out_prev = self.mpc_tvpk['u_prev', 'v_out']
 
         """ Load information """
         # bandwidth / memory info outgoing servers
-        bandwidth_load_target = mpc_pk['bandwidth_load_target']
-        memory_load_target = mpc_ok['memory_load_target']
+        bandwidth_load_target = self.mpc_tvpk['bandwidth_load_target']
+        s_buffer_target = self.mpc_tvpk['s_buffer_target']
         # bandwidth / memory info incoming servers
-        bandwidth_load_source = mpc_pk['bandwidth_load_source']
-        memory_load_source = mpc_pk['memory_load_source']
+        bandwidth_load_source = self.mpc_tvpk['bandwidth_load_source']
+        s_buffer_source = self.mpc_tvpk['s_buffer_source']
 
         """ Circuit matching """
         # Assignment Matrix: Which element of each input is assigned to which output buffer:
-        Pb = mpc_pk['Pb']
+        Pb = self.mpc_pk['Pb']
         # Assignment Matrix: Which input circuit is directed to which output circuit:
-        Pc = SX.sym('Pc', np.sum(self.n_circuit_in), np.sum(self.n_circuit_in))
+        Pc = self.mpc_pk['Pc']
 
         """ System dynamics and constraints and objective"""
         # system dynamics, constraints and objective definition:
@@ -181,138 +186,114 @@ class optimal_traffic_scheduler:
         s_next = s_tilde_next - self.dt*v_out
         sc_next = sc_tilde_next - self.dt*vc_out
 
+        mpc_xk_next = vertcat(s_next, sc_next)
+
         cons_list = [
-            {'lb': [-np.inf], 'eq': sum1(v_in_max)-self.v_in_max_total, 'ub': [0]},
-            {'lb': [-np.inf], 'eq': sum1(v_out)-self.v_out_max_total, 'ub': [0]},
-            {'lb': [-np.inf]*self.n_in, 'eq': -v_in, 'ub': [0]*self.n_in},  # v_in cant be negative
-            {'lb': [-np.inf]*self.n_in, 'eq': -v_in_discard, 'ub': [0]*self.n_in},  # discarded packet stream cant be negative
-            {'lb': [-np.inf]*self.n_in, 'eq': -v_in_extra, 'ub': [0]*self.n_in},  # additional incoming packet stream cant be negative
-            {'lb': [-eps]*self.n_in, 'eq': v_in_discard*v_in_extra, 'ub': [eps]*self.n_in},  # packets can be discarded or added (not both). Should be zero but is better to be within a certain tolerance.
-            {'lb': [-np.inf]*self.n_out, 'eq': -s_buffer, 'ub': [0]*self.n_out},  # buffer memory cant be <0 (for each output buffer)
-            {'lb': [-np.inf]*self.n_out, 'eq': -v_out, 'ub': [0]*self.n_out},  # outgoing packet stream cant be negative
-            {'lb': [-np.inf]*self.n_out, 'eq': v_out-v_out_max, 'ub': [0]*self.n_out},  # outgoing packet stream cant be negative
+            {'lb': [-np.inf],            'eq': sum1(v_in_max)-self.v_in_max_total, 'ub': [0]},             # sum of all incoming traffic can't exceed v_in_max_total
+            {'lb': [-np.inf],            'eq': sum1(v_out)-self.v_out_max_total,   'ub': [0]},             # sum of all outgoing traffic can't exceed v_out_max_total
+            {'lb': [-np.inf]*self.n_in,  'eq': -v_in,                              'ub': [0]*self.n_in},   # v_in cant be negative
+            {'lb': [-np.inf]*self.n_in,  'eq': -v_in_discard,                      'ub': [0]*self.n_in},   # discarded packet stream cant be negative
+            {'lb': [-np.inf]*self.n_in,  'eq': -v_in_extra,                        'ub': [0]*self.n_in},   # additional incoming packet stream cant be negative
+            {'lb': [-eps]*self.n_in,     'eq': v_in_discard*v_in_extra,            'ub': [eps]*self.n_in},  # packets can be discarded or added (not both). Should be zero but is better to be within a certain tolerance.
+            {'lb': [-np.inf]*self.n_out, 'eq': -s_buffer,                          'ub': [0]*self.n_out},  # buffer memory cant be <0 (for each output buffer)
+            {'lb': [-np.inf]*self.n_out, 'eq': -v_out,                             'ub': [0]*self.n_out},  # outgoing packet stream cant be negative
+            {'lb': [-np.inf]*self.n_out, 'eq': v_out-v_out_max,                    'ub': [0]*self.n_out},  # outgoing packet stream cant be negative
         ]
+
+        # Objective function with fairness formulation:
+        obj = sum1(-1/fmax(s_buffer_source, 1)*v_in_max)
+        obj += sum1(-1/fmax(s_buffer, 1)*v_out)
+
+        # Constraints for fairness:
+        # Input
+        for i in range(self.n_in):
+            for j in range(self.n_in):
+                cons_list.append(
+                    {'lb': [-np.inf], 'eq': fmax(s_buffer_source[i]-s_buffer_source[j], 0)*(v_in_max[j]-v_in_max[i]), 'ub': [0]},
+                )
+        # Output
+        for i in range(self.n_out):
+            for j in range(self.n_out):
+                cons_list.append(
+                    {'lb': [-np.inf], 'eq': fmax(s_buffer[i]-s_buffer[j], 0)*(v_out[j]-v_out[i]), 'ub': [0]},
+                )
+
         cons = vertcat(*[con_i['eq'] for con_i in cons_list])
         cons_lb = np.concatenate([con_i['lb'] for con_i in cons_list])
         cons_ub = np.concatenate([con_i['ub'] for con_i in cons_list])
 
-        # Maximize bandwidth  and maximize buffer:(under consideration of outgoing server load)
-        obj = sum1((1-bandwidth_load_target)/(1+memory_load_target)*(-self.weights['send']*v_out/self.v_out_max_total+self.weights['store']*s_buffer/self.s_softmax))
-        obj += sum1((1+bandwidth_load_source*memory_load_source)*(self.weights['receive']*(v_in_discard-v_in_extra)/self.v_in_max_total))
-        obj += self.weights['control_delta']*(sum1(((v_out-v_out_prev)/self.v_out_max_total)**2)+sum1(((v_in_max-v_in_max_prev)/self.v_in_max_total)**2))
-
         """ Problem dictionary """
         mpc_problem = {}
-        mpc_problem['cons'] = Function('cons', [v_in_discard, v_in_extra, v_in_req, v_out, v_out_max, s_buffer], [cons])
+        mpc_problem['cons'] = Function('cons', [self.mpc_xk, self.mpc_uk, self.mpc_tvpk, self.mpc_pk], [cons])
         mpc_problem['cons_lb'] = cons_lb
         mpc_problem['cons_ub'] = cons_ub
-        mpc_problem['obj'] = Function('obj', [v_in_req, v_in_discard, v_in_extra, v_in_max_prev, v_out, v_out_prev, s_buffer, bandwidth_load_target, memory_load_target, bandwidth_load_source, memory_load_source], [obj])
-        mpc_problem['model'] = Function('model', [s_buffer, s_circuit, v_in_req, v_in_discard, v_in_extra, *cv_in, v_out, Pb, Pc], [s_next, sc_next, *cv_out])
-        mpc_problem['aux'] = Function('aux', [v_in_req, v_in_discard, v_in_extra], [v_in_max])
+        mpc_problem['obj'] = Function('obj', [self.mpc_xk, self.mpc_uk, self.mpc_tvpk, self.mpc_pk], [obj])
+        mpc_problem['model'] = Function('model', [self.mpc_xk, self.mpc_uk, self.mpc_tvpk, self.mpc_pk], [mpc_xk_next])
+        mpc_problem['aux'] = Function('aux', [self.mpc_xk, self.mpc_uk, self.mpc_tvpk, self.mpc_pk], [v_in_max, *cv_out])
 
         self.mpc_problem = mpc_problem
 
     def create_optim(self):
         # Initialize trajectory lists (each list item, one time-step):
-        s_buffer = []  # [s_1, s_2, ..., s_N]
-        s_circuit = []
-        v_in_req = []
-        v_in_max = []
-        v_in_discard = []
-        v_in_extra = []
-        v_in_max_prev = []  # solution from previous timestep
-        cv_in = []
-        v_out = []
-        v_out_prev = []  # solution from the previous timestep.
-        v_out_max = []
-        cv_out = []
-        bandwidth_load_target = []
-        memory_load_target = []
-        bandwidth_load_source = []
-        memory_load_source = []
+        self.mpc_obj_x = mpc_obj_x = struct_symSX([
+            entry('x', repeat=self.N_steps, struct=self.mpc_xk),
+            entry('u', repeat=self.N_steps, struct=self.mpc_uk),
+        ])
+        self.mpc_obj_p = mpc_obj_p = struct_symSX([
+            entry('tvp', repeat=self.N_steps, struct=self.mpc_tvpk),
+            entry('p',   struct=self.mpc_pk),
+            entry('x0',  struct=self.mpc_xk)
+        ])
+
+        # Initialize objective value:
+        obj = 0
+        # Initialize constraings:
         cons = []
         cons_ub = []
         cons_lb = []
 
-        # Assignment Matrix: Which element of each input is assigned to which output buffer:
-        Pb = SX.sym('Pb', self.n_out, np.sum(self.n_circuit_in))
-        # Assignment Matrix: Which input circuit is directed to which output circuit:
-        Pc = SX.sym('Pc', np.sum(self.n_circuit_in), np.sum(self.n_circuit_in))
-
-        # Initialize objective value:
-        obj = 0
-
-        # Initial condition:
-        s_buffer_0 = SX.sym('s_buffer_0', self.n_out, 1)
-        s_circuit_0 = SX.sym('s_circuit_0', np.sum(self.n_circuit_out), 1)
-
         # Recursively evaluate system equation and add stage cost and stage constraints:
         for k in range(self.N_steps):
-
-            # Incoming packet stream
-            v_in_req.append(SX.sym('v_in_req', self.n_in, 1))
-            v_in_discard.append(SX.sym('v_in_discard', self.n_in, 1))
-            v_in_extra.append(SX.sym('v_in_extra', self.n_in, 1))
-            v_in_max.append(self.mpc_problem['aux'](v_in_req[k], v_in_discard[k], v_in_extra[k]))
-            # Previous outgoing packet stream:
-            v_in_max_prev.append(SX.sym('v_in_max_prev', self.n_in, 1))
-            cv_in.append([SX.sym('cv_in_{0}_{1}'.format(k, i), self.n_circuit_in[i], 1) for i in range(self.n_in)])
-
-            # Outgoing packet stream
-            v_out.append(SX.sym('v_out', self.n_out, 1))
-
-            # Maximum value for outgoing packet stream:
-            v_out_max.append(SX.sym('v_out_max', self.n_out, 1))
-            # Previous outgoing packet stream:
-            v_out_prev.append(SX.sym('v_out_prev', self.n_out, 1))
-
-            # bandwidth / memory info outgoing servers
-            bandwidth_load_target.append(SX.sym('bandwidth_load_target', self.n_out, 1))
-            memory_load_target.append(SX.sym('memory_load_target', self.n_out, 1))
-
-            # bandwidth / memory info incoming servers
-            bandwidth_load_source.append(SX.sym('bandwidth_load_source', self.n_in, 1))
-            memory_load_source.append(SX.sym('memory_load_source', self.n_in, 1))
-
             # For the first step use initial condition:
             if k == 0:
-                s_buffer_k = s_buffer_0
-                s_circuit_k = s_circuit_0
-            else:  # In suceeding steps use the previous s
-                s_buffer_k = s_buffer[k-1]
-                s_circuit_k = s_circuit[k-1]
-            model_out = self.mpc_problem['model'](s_buffer_k, s_circuit_k, v_in_req[k],  v_in_discard[k], v_in_extra[k], *cv_in[k], v_out[k], Pb, Pc)
-            s_buffer.append(model_out[0])
-            s_circuit.append(model_out[1])
-            cv_out.append(model_out[2:])
+                mpc_xk_next = self.mpc_problem['model'](mpc_obj_p['x0'], mpc_obj_x['u', k], mpc_obj_p['tvp', k], mpc_obj_p['p'])
+            else:  # In suceeding steps use current x
+                mpc_xk_next = self.mpc_problem['model'](mpc_obj_x['x', k], mpc_obj_x['u', k], mpc_obj_p['tvp', k], mpc_obj_p['p'])
+            # State constraint:
+            if k < self.N_steps-1:
+                cons.append(mpc_xk_next-mpc_obj_x['x', k+1])
+                # TODO: Check if np.zeros(self.mpc_xk.shape) yields the desired effect.
+                cons_lb.append(np.zeros(self.mpc_xk.shape))
+                cons_ub.append(np.zeros(self.mpc_xk.shape))
 
             # Add the "stage cost" to the objective
-            obj += self.mpc_problem['obj'](v_in_req[k], v_in_discard[k], v_in_extra[k], v_in_max_prev[k], v_out[k], v_out_prev[k], s_buffer[k], bandwidth_load_target[k], memory_load_target[k],
-                                           bandwidth_load_source[k], memory_load_source[k])
+            obj += self.mpc_problem['obj'](mpc_obj_x['x', k], mpc_obj_x['u', k], mpc_obj_p['tvp', k], mpc_obj_p['p'])
 
             # Constraints for the current step
-            cons.append(self.mpc_problem['cons'](v_in_discard[k], v_in_extra[k], v_in_req[k], v_out[k], v_out_max[k], s_buffer[k]))
+            cons.append(self.mpc_problem['cons'](mpc_obj_x['x', k], mpc_obj_x['u', k], mpc_obj_p['tvp', k], mpc_obj_p['p']))
             cons_lb.append(self.mpc_problem['cons_lb'])
             cons_ub.append(self.mpc_problem['cons_ub'])
 
-        optim_dict = {'x': vertcat(*v_out, *v_in_discard, *v_in_extra),    # Optimization variable
-                      'f': obj,                        # objective
-                      'g': vertcat(*cons),            # constraints (Note: cons<=0)
-                      'p': vertcat(s_buffer_0, s_circuit_0, *v_in_req, *v_in_max_prev, *[j for i in cv_in for j in i], *v_out_max, *v_out_prev,
-                                   Pb.reshape((-1, 1)), Pc.reshape((-1, 1)), *bandwidth_load_target,
-                                   *memory_load_target, *bandwidth_load_source, *memory_load_source)}  # parameters
-        self.cons_lb = np.concatenate(cons_lb)
-        self.cons_ub = np.concatenate(cons_ub)
+        optim_dict = {'x': mpc_obj_x,      # Optimization variable
+                      'f': obj,            # objective
+                      'g': vertcat(*cons),  # constraints
+                      'p': mpc_obj_p}      # parameters
+        self.cons_lb = vertcat(*cons_lb)
+        self.cons_ub = vertcat(*cons_ub)
+
+        # Use the structured data obj_x and obj_p and create identically organized copies with numerical values (initialized to zero)
+        self.mpc_obj_x_num = self.mpc_obj_x(0)
+        self.mpc_obj_p_num = self.mpc_obj_p(0)
 
         # TODO: Make optimization option available to user.
         # Create casadi optimization object:
-        self.optim = nlpsol('optim', 'ipopt', optim_dict, opts)
         opts = {'ipopt.linear_solver': 'MA27', 'error_on_fail': True}
+        self.optim = nlpsol('optim', 'ipopt', optim_dict, opts)
         # Create function to calculate buffer memory from parameter and optimization variable trajectories
-        self.aux_fun = Function('aux_fun', [s_buffer_0, s_circuit_0]+v_in_discard+v_in_extra+v_in_req+[j for i in cv_in for j in i]+v_out+[Pb, Pc],
-                                s_buffer+s_circuit+v_in_max+[j for i in cv_out for j in i])
+        # self.aux_fun=Function('aux_fun', [s_buffer_0, s_circuit_0]+v_in_discard+v_in_extra+v_in_req+[j for i in cv_in for j in i]+v_out+[Pb, Pc],
+        #                         s_buffer+s_circuit+v_in_max+[j for i in cv_out for j in i])
 
-    def solve(self, s_buffer_0, s_circuit_0, v_in_req, cv_in, v_out_max, bandwidth_load_target, memory_load_target, bandwidth_load_source, memory_load_source, *args, **kwargs):
+    def solve(self, s_buffer_0, s_circuit_0, v_in_req, cv_in, v_out_max, bandwidth_load_target, s_buffer_target, bandwidth_load_source, s_buffer_source, *args, **kwargs):
         """
         Solves the optimal control problem defined in optimal_traffic_scheduler.problem_formulation().
         Inputs:
@@ -324,9 +305,9 @@ class optimal_traffic_scheduler:
         - cv_in                 : Composition of incoming streams. (List with n_in elements with n_circuit_in[i] x 1 vector for list item i)
         - v_out_max             : Maximum for outgoing packet stream. Supplied by target servers (n_out x 1 vector)
         - bandwidth_load_target : Bandwidth load of target server(s) (n_out x 1 vector)
-        - memory_load_target    : Memory load of target server(s) (n_out x 1 vector)
+        - s_buffer_target       : buffer memory of target server(s) (n_out x 1 vector)
         - bandwidth_load_source : Bandwidth load of source server(s) (n_in x 1 vector)
-        - memory_load_source    : Memory load of source server(s) (n_in x 1 vector)
+        - s_buffer_source       : Memory load of source server(s) (n_in x 1 vector)
 
         Populates the "predict" and "record" dictonaries of the class.
         - Predict: One list item per timestep, each item a dict with the optimized state and control trajectories of the node
@@ -339,34 +320,60 @@ class optimal_traffic_scheduler:
         assert np.isclose(np.sum(s_buffer_0), np.sum(s_circuit_0)), 'Inconsistent initial conditions.'
         # TODO: Continue checks, add option to avoid checks.
 
-        """ Get previous solution and shift to current timestep:"""
-        v_out_prev_pred = self.predict[-1]['v_out']
-        v_in_max_prev = self.predict[-1]['v_in_max']
-        v_in_req_prev = self.predict[-1]['v_in_req']
-        v_in_prev = self.predict[-1]['v_in']
-        # From the perspecitve of the current timestep:
-        v_out_0 = v_out_prev_pred[1:]+[v_out_prev_pred[-1]]
-        v_in_max_0 = v_in_max_prev[1:]+[v_in_max_prev[-1]]
-        v_in_req_0 = v_in_req_prev[1:]+[v_in_req_prev[-1]]
-        v_in_0 = v_in_prev[1:]+[v_in_prev[-1]]
-
-        v_in_extra_0 = [v_in_max_i-v_in_i for v_in_max_i, v_in_i in zip(v_in_max_0, v_in_0)]
-        v_in_discard_0 = [v_in_req_i-v_in_i for v_in_req_i, v_in_i in zip(v_in_req_0, v_in_0)]
-
-        """ Create concatented parameter vector:"""
-        param = np.concatenate((s_buffer_0, s_circuit_0, *v_in_req, *v_in_max_0, *[j for i in cv_in for j in i], *v_out_max, *v_out_0,
-                                self.Pb.reshape((-1, 1)), self.Pc.reshape((-1, 1)), *bandwidth_load_target,
-                                *memory_load_target, *bandwidth_load_source, *memory_load_source), axis=0)
-
+        # mpc_obj_p=struct_symSX([
+        #     entry('tvp', repeat=self.N_steps, struct=self.mpc_tvpk),
+        #     entry('p',   struct=self.mpc_pk),
+        #     entry('x0',  struct=self.mpc_xk)
+        # ])
         #
-        """ Get initial condition: """
-        x0 = np.concatenate(v_out_0+v_in_discard_0+v_in_extra_0, axis=0)
+        # """ MPC states for stage k"""
+        # self.mpc_xk=struct_symSX([
+        #     entry('s_buffer', shape=(self.n_out, 1)),
+        #     entry('s_circuit', shape=(np.sum(self.n_circuit_in), 1)),
+        # ])
+        # """ MPC time-varying parameters for stage k"""
+        # cv_in=struct_symSX([entry(str(i), shape=(self.n_circuit_in[i], 1)) for i in range(self.n_in)])
+        # self.mpc_tvpk = struct_symSX([
+        #     entry('u_prev', struct=self.mpc_uk),
+        #     entry('v_in_req', shape=(self.n_in, 1)),
+        #     entry('cv_in', struct=cv_in_struct),
+        #     entry('v_out_max', shape=(self.n_out, 1)),
+        #     entry('bandwidth_load_target', shape=(self.n_out, 1)),
+        #     entry('s_buffer_target', shape=(self.n_out, 1)),
+        #     entry('bandwidth_load_source', shape=(self.n_in, 1)),
+        #     entry('s_buffer_source', shape=(self.n_in, 1)),
+        # ])
+        # """ MPC parameters for stage k"""
+        # self.mpc_pk=struct_symSX([
+        #     entry('Pb', shape=(self.n_out, np.sum(self.n_circuit_in))),
+        #     entry('Pc', shape=(np.sum(self.n_circuit_in), np.sum(self.n_circuit_in))),
+        # ])
+
+        """ Set initial condition """
+        self.mpc_obj_p_num['x0', 's_buffer'] = s_buffer_0
+        self.mpc_obj_p_num['x0', 's_circuit'] = s_circuit_0
+
+        """ Get previous inputs and assign to tvp u_prev after shifting"""
+        self.mpc_obj_p_num['tvp', :-1, 'u_prev'] = self.mpc_obj_x_num['u', 1:]
+        self.mpc_obj_p_num['tvp', -1, 'u_prev'] = self.mpc_obj_x_num['u', -1]
+
+        """ Assign further parameters to tvp"""
+        self.mpc_obj_p_num['tvp', :, 'v_in_req'] = v_in_req
+        self.mpc_obj_p_num['tvp', :, 'cv_in'] = [vertcat(*cv_in_i) for cv_in_i in cv_in]
+        self.mpc_obj_p_num['tvp', :, 'v_out_max'] = v_out_max
+        self.mpc_obj_p_num['tvp', :, 'bandwidth_load_target'] = bandwidth_load_target
+        self.mpc_obj_p_num['tvp', :, 's_buffer_target'] = s_buffer_target
+        self.mpc_obj_p_num['tvp', :, 'bandwidth_load_source'] = bandwidth_load_source
+        self.mpc_obj_p_num['tvp', :, 's_buffer_source'] = s_buffer_source
 
         """Solve optimization problem for given conditions:"""
-        optim_results = self.optim(ubg=self.cons_ub, lbg=self.cons_lb, p=param, x0=x0)  # Note: constraints were formulated, such that cons<=0.
+        pdb.set_trace()
+        optim_results = self.optim(ubg=self.cons_ub, lbg=self.cons_lb, p=self.mpc_obj_p_num, x0=self.mpc_obj_x_num)
         optim_stats = self.optim.stats()
 
         """ Retrieve trajectories from solution: """
+        self.mpc_obj_x_num = self.mpc_obj_x(optim_results['x'])
+
         optim_sol = optim_results['x'].full()
         v_out, v_in_discard, v_in_extra = np.split(optim_sol, [self.N_steps*self.n_out, self.N_steps*(self.n_out+self.n_in)])
         # Return to timestep per list item format:
@@ -385,7 +392,7 @@ class optimal_traffic_scheduler:
         bandwidth_load_node = [(np.sum(v_out_i, keepdims=True)+np.sum(v_in_i, keepdims=True))/(self.v_in_max_total+self.v_out_max_total) for v_out_i,
                                v_in_i in zip(v_out, v_in)]
 
-        memory_load_node = [np.sum(s_buffer_i, keepdims=True)/self.s_softmax for s_buffer_i in s_buffer]
+        # memory_load_node = [np.sum(s_buffer_i, keepdims=True)/self.s_softmax for s_buffer_i in s_buffer]
 
         """ Advance time and record values """
         self.time = self.time + self.dt
@@ -542,17 +549,8 @@ class optimal_traffic_scheduler:
 
 class ots_client(optimal_traffic_scheduler):
     def __init__(self, setup_dict, name='ots_client', record_values=True):
-        self.obj_name = name
-        # Legacy check:
-        assert 'v_max' not in setup_dict.keys(), 'Updated Framework where v_max parameter is not longer supported for ots init. Use v_in_max_total and v_out_max_total instead.'
-        assert 's_max' not in setup_dict.keys(), 'Updated Framework where s_max parameter is not longer supported for ots init. Use s_softmax instead. Choose s_softmax sucht that np.sum(s_buffer)/s_softmax is usually in the range of 0 and 1. This can, however, be exceeded.'
-        self.v_in_max_total = setup_dict['v_in_max_total']
-        self.v_out_max_total = setup_dict['v_out_max_total']
-        self.s_softmax = setup_dict['s_softmax']
-        self.dt = setup_dict['dt']
-        self.N_steps = setup_dict['N_steps']
-        self.record_values = record_values
-        self.time = np.array([[0]])  # 1,1 array for consistency.
+        # Same init as optimal_traffic_scheduler
+        super().__init__(setup_dict, name, record_values)
 
     def setup(self, n_in=None, n_out=None, input_circuits=None, output_circuits=None, output_delay=0):
         """
