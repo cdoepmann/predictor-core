@@ -41,9 +41,9 @@ cv_in = [[np.array([[0.5, 0.5]]).T, np.array([[1]]).T]]*ots.N_steps
 v_out_max = [np.array([[5, 5, 5]]).T]*ots.N_steps
 
 bandwidth_load_target = [np.array([[0, 0, 0]]).T]*ots.N_steps
-s_buffer_target = [np.array([[0, 0, 0]]).T]*ots.N_steps
+s_buffer_target = [np.array([[100, 10, 50]]).T]*ots.N_steps
 
-bandwidth_load_source = [np.array([[0, 0]]).T]*ots.N_steps
+bandwidth_load_source = [np.array([[200, 50]]).T]*ots.N_steps
 s_buffer_source = [np.array([[0, 0]]).T]*ots.N_steps
 
 
@@ -53,22 +53,20 @@ ots.solve(s_buffer_0, s_circuit_0, v_in_req, cv_in, v_out_max, bandwidth_load_ta
 
 fig, ax = plt.subplots(2, 3, sharex=True, figsize=[16, 9])
 
-ax[0, 0].step(range(20), np.sum(np.concatenate(ots.predict[-1]['v_out'], axis=1), axis=0))
-ax[0, 1].step(range(20), np.sum(np.concatenate(ots.predict[-1]['v_in_req'], axis=1), axis=0), label='v_in_req')
-ax[0, 1].step(range(20), np.sum(np.concatenate(ots.predict[-1]['v_in_max'], axis=1), axis=0), label='v_max')
-ax[0, 1].step(range(20), np.sum(np.concatenate(ots.predict[-1]['v_in'], axis=1), axis=0), label='v_in')
+ax[0, 0].step(range(ots.N_steps), np.sum(np.concatenate(ots.predict['v_out'], axis=1), axis=0))
+ax[0, 1].step(range(ots.N_steps), np.sum(np.concatenate(ots.predict['v_in_req'], axis=1), axis=0), label='v_in_req')
+ax[0, 1].step(range(ots.N_steps), np.sum(np.concatenate(ots.predict['v_in_max'], axis=1), axis=0), label='v_max')
+ax[0, 1].step(range(ots.N_steps), np.sum(np.concatenate(ots.predict['v_in'], axis=1), axis=0), label='v_in')
 ax[0, 1].legend()
-ax[0, 2].step(range(20), np.sum(np.concatenate(ots.predict[-1]['s_buffer'], axis=1), axis=0))
-ax[1, 0].step(range(20), np.concatenate(ots.predict[-1]['v_out'], axis=1).T)
-ax[1, 1].step(range(20), np.concatenate(ots.predict[-1]['v_in'], axis=1).T)
-ax[1, 2].step(range(20), np.concatenate(ots.predict[-1]['s_buffer'], axis=1).T)
+ax[0, 2].step(range(ots.N_steps), np.sum(np.concatenate(ots.predict['s_buffer'], axis=1), axis=0))
+ax[1, 0].step(range(ots.N_steps), np.concatenate(ots.predict['v_out'], axis=1).T)
+ax[1, 1].step(range(ots.N_steps), np.concatenate(ots.predict['v_in'], axis=1).T)
+ax[1, 2].step(range(ots.N_steps), np.concatenate(ots.predict['s_buffer'], axis=1).T)
 
 ax[0, 0].set_ylim(bottom=-0.1, top=setup_dict['v_out_max_total'])
 ax[0, 1].set_ylim(bottom=-0.1, top=setup_dict['v_in_max_total'])
-ax[0, 2].set_ylim(bottom=-1, top=setup_dict['s_softmax'])
 ax[1, 0].set_ylim(bottom=-0.1, top=setup_dict['v_out_max_total'])
 ax[1, 1].set_ylim(bottom=-0.1, top=setup_dict['v_in_max_total'])
-ax[1, 2].set_ylim(bottom=-1, top=setup_dict['s_softmax'])
 
 ax[0, 0].set_title('Outgoing packets')
 ax[0, 1].set_title('Incoming packets')
@@ -83,4 +81,4 @@ ax[1, 2].set_ylabel('packets')
 
 plt.tight_layout()
 plt.show()
-#np.sum(np.concatenate(ots.predict[-1]['s_transit'], axis=1), axis=0)
+#np.sum(np.concatenate(ots.predict['s_transit'], axis=1), axis=0)

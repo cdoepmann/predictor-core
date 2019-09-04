@@ -75,12 +75,12 @@ class optimal_traffic_scheduler:
             'cv_in': [[np.ones((n_circuit_in_i, 1))/n_circuit_in_i for n_circuit_in_i in self.n_circuit_in]]*self.N_steps,
             's_buffer': [np.zeros((self.n_out, 1))]*self.N_steps,
             's_circuit': [np.zeros((np.sum(self.n_circuit_in), 1))]*self.N_steps,
-            'bandwidth_load': [np.zeros((1, 1))]*self.N_steps,
-            'memory_load': [np.zeros((1, 1))]*self.N_steps,
+            'bandwidth_load_in': [np.zeros((1, 1))]*self.N_steps,
+            'bandwidth_load_out': [np.zeros((1, 1))]*self.N_steps,
             'bandwidth_load_target': [np.zeros((self.n_out, 1))]*self.N_steps,
-            'memory_load_target': [np.zeros((self.n_out, 1))]*self.N_steps,
+            's_buffer_target': [np.zeros((self.n_out, 1))]*self.N_steps,
             'bandwidth_load_source': [np.zeros((self.n_in, 1))]*self.N_steps,
-            'memory_load_source': [np.zeros((self.n_in, 1))]*self.N_steps,
+            's_buffer_source': [np.zeros((self.n_in, 1))]*self.N_steps,
         }]
 
     def initialize_record(self):
@@ -179,17 +179,10 @@ class optimal_traffic_scheduler:
         s_tilde_next = s_buffer + self.dt*Pb@vc_in
         sc_tilde_next = s_circuit + self.dt*Pc@vc_in
 
-        # Calculate cv_out (create first a symbolic struct similar to cv_in)
-        # cv_out_struct = struct_symSX([
-        #     entry('c_'+str(i), shape=(self.n_circuit_out[i], 1)) for i in range(self.n_out)
-        # ])
-        # cv_out = struct_SX(cv_out_struct)
-
         # Protected division. The denominator can only be zero, if the numerator is also zero. cv_out_i = 0 in that case
         # and would be NaN without using the eps value.
         eps = 1e-6
-        # for i, sc_i in enumerate(vertsplit(sc_tilde_next, np.cumsum([0]+self.n_circuit_out))):
-        #     cv_out['c_'+str(i)] = sc_i/(s_tilde_next[i]+eps)
+
         cv_out = [sc_i/(s_tilde_next[i]+eps) for i, sc_i in enumerate(vertsplit(sc_tilde_next, np.cumsum([0]+self.n_circuit_out)))]
         vc_out = vertcat(*[v_out_i*c_out_i for v_out_i, c_out_i in zip(v_out_list, cv_out)])
         s_next = s_tilde_next - self.dt*v_out
@@ -207,6 +200,7 @@ class optimal_traffic_scheduler:
             {'lb': [-np.inf]*self.n_out, 'eq': -s_buffer,                          'ub': [0]*self.n_out},  # buffer memory cant be <0 (for each output buffer)
             {'lb': [-np.inf]*self.n_out, 'eq': -v_out,                             'ub': [0]*self.n_out},  # outgoing packet stream cant be negative
             {'lb': [-np.inf]*self.n_out, 'eq': v_out-v_out_max,                    'ub': [0]*self.n_out},  # outgoing packet stream cant be negative
+            {'lb': [-np.inf]*self.n_in,  'eq': v_in_max*self.dt-s_buffer_source,   'ub': [0]*self.n_in},   # Can't receive more than what is available in source_buffer.
         ]
 
         # Objective function with fairness formulation:
@@ -342,7 +336,7 @@ class optimal_traffic_scheduler:
         - s_buffer_source       : Memory load of source server(s) (n_in x 1 vector)
 
         Populates the "predict" and "record" dictonaries of the class.
-        - Predict: One list item per timestep, each item a dict with the optimized state and control trajectories of the node
+        - Predict: A dict with the optimized state and control trajectories of the node
         - Record:  Lists with items appended for each call of solve, recording the states of the node.
 
         "Solve" also advances the time of the node by one time_step.
@@ -382,17 +376,16 @@ class optimal_traffic_scheduler:
         """ Retrieve relevant trajectories """
 
         v_out = self.mpc_obj_x_num['u', :, 'v_out']
-        pdb.set_trace()
         cv_out = [np.split(self.mpc_obj_aux_num['aux', k, 'cv_out'], np.cumsum(self.n_circuit_out[:-1])) for k in range(self.N_steps)]
 
-        v_in = self.mpc_obj_aux_num['aux':, 'v_in']
-        v_in_max = self.mpc_obj_aux_num['aux':, 'v_in_max']
+        v_in = self.mpc_obj_aux_num['aux', :, 'v_in']
+        v_in_max = self.mpc_obj_aux_num['aux', :, 'v_in_max']
 
         s_buffer = self.mpc_obj_x_num['x', :, 's_buffer']
         s_circuit = self.mpc_obj_x_num['x', :, 's_circuit']
 
-        bandwidth_load_in = self.mpc_obj_aux_num['aux':, 'bandwidth_load_in']
-        bandwidth_load_out = self.mpc_obj_aux_num['aux':, 'bandwidth_load_out']
+        bandwidth_load_in = self.mpc_obj_aux_num['aux', :, 'bandwidth_load_in']
+        bandwidth_load_out = self.mpc_obj_aux_num['aux', :, 'bandwidth_load_out']
 
         """ Advance time and record values """
         self.time = self.time + self.dt
