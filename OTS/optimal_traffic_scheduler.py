@@ -108,6 +108,7 @@ class optimal_traffic_scheduler:
         cv_in_struct = struct_symSX([
             entry('c_'+str(i), shape=(self.n_circuit_in[i], 1)) for i in range(self.n_in)
         ])
+
         self.mpc_tvpk = struct_symSX([
             entry('u_prev', struct=self.mpc_uk),
             entry('v_in_req', shape=(self.n_in, 1)),
@@ -178,11 +179,19 @@ class optimal_traffic_scheduler:
         s_tilde_next = s_buffer + self.dt*Pb@vc_in
         sc_tilde_next = s_circuit + self.dt*Pc@vc_in
 
+        # Calculate cv_out (create first a symbolic struct similar to cv_in)
+        # cv_out_struct = struct_symSX([
+        #     entry('c_'+str(i), shape=(self.n_circuit_out[i], 1)) for i in range(self.n_out)
+        # ])
+        # cv_out = struct_SX(cv_out_struct)
+
         # Protected division. The denominator can only be zero, if the numerator is also zero. cv_out_i = 0 in that case
         # and would be NaN without using the eps value.
         eps = 1e-6
+        # for i, sc_i in enumerate(vertsplit(sc_tilde_next, np.cumsum([0]+self.n_circuit_out))):
+        #     cv_out['c_'+str(i)] = sc_i/(s_tilde_next[i]+eps)
         cv_out = [sc_i/(s_tilde_next[i]+eps) for i, sc_i in enumerate(vertsplit(sc_tilde_next, np.cumsum([0]+self.n_circuit_out)))]
-        vc_out = vertcat(*[v_out_i*cv_out_i for v_out_i, cv_out_i in zip(v_out_list, cv_out)])
+        vc_out = vertcat(*[v_out_i*c_out_i for v_out_i, c_out_i in zip(v_out_list, cv_out)])
         s_next = s_tilde_next - self.dt*v_out
         sc_next = sc_tilde_next - self.dt*vc_out
 
@@ -224,9 +233,10 @@ class optimal_traffic_scheduler:
 
         """ Summarize auxiliary / intermediate variables in mpc_aux with their respective expression """
         bandwidth_load_in = sum1(v_in)/self.v_in_max_total
-        bandwidth_load_out = sim1(v_out)/self.v_out_max_total
+        bandwidth_load_out = sum1(v_out)/self.v_out_max_total
 
         self.mpc_aux_expr = struct_SX([
+            entry('v_in', expr=v_in),
             entry('v_in_max', expr=v_in_max),
             entry('cv_out', expr=cv_out),
             entry('bandwidth_load_in', expr=bandwidth_load_in),
@@ -322,7 +332,7 @@ class optimal_traffic_scheduler:
         - s_buffer_0            : initial memory for each buffer (must be n_out x 1 vector)
         - s_circuit_0           : intitial memory for each circuit (must be np.sum(n_circuit_out) x 1 vector)
 
-        Predicted trajectories as lists with N_horizon elments, where each list item has the following configuration:
+        Predicted trajectories as lists with N_horizon elments, where each(!!!) list item has the following configuration:
         - v_in_req              : Requested incoming package stream for each buffer (n_in x 1 vector)
         - cv_in                 : Composition of incoming streams. (List with n_in elements with n_circuit_in[i] x 1 vector for list item i)
         - v_out_max             : Maximum for outgoing packet stream. Supplied by target servers (n_out x 1 vector)
@@ -372,7 +382,10 @@ class optimal_traffic_scheduler:
         """ Retrieve relevant trajectories """
 
         v_out = self.mpc_obj_x_num['u', :, 'v_out']
-        cv_out = self.mpc_obj_aux_num['aux', :, 'cv_out']
+        pdb.set_trace()
+        cv_out = [np.split(self.mpc_obj_aux_num['aux', k, 'cv_out'], np.cumsum(self.n_circuit_out[:-1])) for k in range(self.N_steps)]
+
+        v_in = self.mpc_obj_aux_num['aux':, 'v_in']
         v_in_max = self.mpc_obj_aux_num['aux':, 'v_in_max']
 
         s_buffer = self.mpc_obj_x_num['x', :, 's_buffer']
@@ -384,22 +397,20 @@ class optimal_traffic_scheduler:
         """ Advance time and record values """
         self.time = self.time + self.dt
 
-        self.predict.append({})
-        self.predict[-1]['v_in'] = v_in
-        self.predict[-1]['v_in_max'] = v_in_max
-        self.predict[-1]['v_in_req'] = v_in_req
-        self.predict[-1]['cv_in'] = cv_in
-        self.predict[-1]['v_out'] = v_out
-        self.predict[-1]['v_out_max'] = v_out_max
-        self.predict[-1]['cv_out'] = cv_out
-        self.predict[-1]['s_buffer'] = s_buffer
-        self.predict[-1]['s_circuit'] = s_circuit
-        self.predict[-1]['bandwidth_load'] = bandwidth_load_node
-        self.predict[-1]['memory_load'] = memory_load_node
-        self.predict[-1]['bandwidth_load_target'] = np.copy(bandwidth_load_target)
-        self.predict[-1]['memory_load_target'] = np.copy(memory_load_target)
-        self.predict[-1]['bandwidth_load_source'] = np.copy(bandwidth_load_source)
-        self.predict[-1]['memory_load_source'] = np.copy(memory_load_source)
+        self.predict = {}
+        self.predict['v_in'] = v_in
+        self.predict['v_in_max'] = v_in_max
+        self.predict['v_in_req'] = v_in_req
+        self.predict['cv_in'] = cv_in
+        self.predict['v_out'] = v_out
+        self.predict['v_out_max'] = v_out_max
+        self.predict['cv_out'] = cv_out
+        self.predict['s_buffer'] = s_buffer
+        self.predict['s_circuit'] = s_circuit
+        self.predict['bandwidth_load_in'] = bandwidth_load_in
+        self.predict['bandwidth_load_out'] = bandwidth_load_out
+        self.predict['bandwidth_load_target'] = bandwidth_load_target
+        self.predict['bandwidth_load_source'] = bandwidth_load_source
 
         if self.record_values:
             self.record_fun()
@@ -410,7 +421,7 @@ class optimal_traffic_scheduler:
 
     def record_fun(self):
         self.record['time'].append(np.copy(self.time))
-        for key, val in self.predict[-1].items():
+        for key, val in self.predict.items():
             self.record[key].append(val[0])
 
     def latency_adaption(self, sequence, type, input_delay=np.array([0]), output_delay=np.array([0])):

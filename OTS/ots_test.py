@@ -41,14 +41,14 @@ cv_in = [[np.array([[0.5, 0.5]]).T, np.array([[1]]).T]]*ots.N_steps
 v_out_max = [np.array([[5, 5, 5]]).T]*ots.N_steps
 
 bandwidth_load_target = [np.array([[0, 0, 0]]).T]*ots.N_steps
-memory_load_target = [np.array([[0, 0, 0]]).T]*ots.N_steps
+s_buffer_target = [np.array([[0, 0, 0]]).T]*ots.N_steps
 
 bandwidth_load_source = [np.array([[0, 0]]).T]*ots.N_steps
-memory_load_source = [np.array([[0, 0]]).T]*ots.N_steps
+s_buffer_source = [np.array([[0, 0]]).T]*ots.N_steps
 
 
 # Call the solver:
-ots.solve(s_buffer_0, s_circuit_0, v_in_req, cv_in, v_out_max, bandwidth_load_target, memory_load_target, bandwidth_load_source, memory_load_source)
+ots.solve(s_buffer_0, s_circuit_0, v_in_req, cv_in, v_out_max, bandwidth_load_target, s_buffer_target, bandwidth_load_source, s_buffer_source)
 
 
 fig, ax = plt.subplots(2, 3, sharex=True, figsize=[16, 9])
