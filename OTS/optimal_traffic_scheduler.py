@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from casadi import *
-from casadi.tools import struct_symSX, entry
+from casadi.tools import struct_symSX, struct_SX, entry
 import pdb
 from scipy.linalg import block_diag
 
@@ -222,6 +222,17 @@ class optimal_traffic_scheduler:
         cons_lb = np.concatenate([con_i['lb'] for con_i in cons_list])
         cons_ub = np.concatenate([con_i['ub'] for con_i in cons_list])
 
+        """ Summarize auxiliary / intermediate variables in mpc_aux with their respective expression """
+        bandwidth_load_in = sum1(v_in)/self.v_in_max_total
+        bandwidth_load_out = sim1(v_out)/self.v_out_max_total
+
+        self.mpc_aux_expr = struct_SX([
+            entry('v_in_max', expr=v_in_max),
+            entry('cv_out', expr=cv_out),
+            entry('bandwidth_load_in', expr=bandwidth_load_in),
+            entry('bandwidth_load_out', expr=bandwidth_load_out),
+        ])
+
         """ Problem dictionary """
         mpc_problem = {}
         mpc_problem['cons'] = Function('cons', [self.mpc_xk, self.mpc_uk, self.mpc_tvpk, self.mpc_pk], [cons])
@@ -229,7 +240,7 @@ class optimal_traffic_scheduler:
         mpc_problem['cons_ub'] = cons_ub
         mpc_problem['obj'] = Function('obj', [self.mpc_xk, self.mpc_uk, self.mpc_tvpk, self.mpc_pk], [obj])
         mpc_problem['model'] = Function('model', [self.mpc_xk, self.mpc_uk, self.mpc_tvpk, self.mpc_pk], [mpc_xk_next])
-        mpc_problem['aux'] = Function('aux', [self.mpc_xk, self.mpc_uk, self.mpc_tvpk, self.mpc_pk], [v_in_max, *cv_out])
+        mpc_problem['aux'] = Function('aux', [self.mpc_xk, self.mpc_uk, self.mpc_tvpk, self.mpc_pk], [self.mpc_aux_expr])
 
         self.mpc_problem = mpc_problem
 
@@ -244,6 +255,13 @@ class optimal_traffic_scheduler:
             entry('p',   struct=self.mpc_pk),
             entry('x0',  struct=self.mpc_xk)
         ])
+
+        # Dummy struct with symbolic variables
+        aux_struct = struct_symSX([
+            entry('aux', repeat=self.N_steps, struct=self.mpc_aux_expr)
+        ])
+        # Create mutable symbolic expression from the struct defined above.
+        self.mpc_obj_aux = mpc_obj_aux = struct_SX(aux_struct)
 
         # Initialize objective value:
         obj = 0
@@ -274,24 +292,28 @@ class optimal_traffic_scheduler:
             cons_lb.append(self.mpc_problem['cons_lb'])
             cons_ub.append(self.mpc_problem['cons_ub'])
 
-        optim_dict = {'x': mpc_obj_x,      # Optimization variable
-                      'f': obj,            # objective
+            # Calculate auxiliary values:
+            mpc_obj_aux['aux', k] = self.mpc_problem['aux'](mpc_obj_x['x', k], mpc_obj_x['u', k], mpc_obj_p['tvp', k], mpc_obj_p['p'])
+
+        optim_dict = {'x': mpc_obj_x,       # Optimization variable
+                      'f': obj,             # objective
                       'g': vertcat(*cons),  # constraints
-                      'p': mpc_obj_p}      # parameters
+                      'p': mpc_obj_p}       # parameters
         self.cons_lb = vertcat(*cons_lb)
         self.cons_ub = vertcat(*cons_ub)
 
         # Use the structured data obj_x and obj_p and create identically organized copies with numerical values (initialized to zero)
         self.mpc_obj_x_num = self.mpc_obj_x(0)
         self.mpc_obj_p_num = self.mpc_obj_p(0)
+        self.mpc_obj_aux_num = self.mpc_obj_aux(0)
 
         # TODO: Make optimization option available to user.
         # Create casadi optimization object:
         opts = {'ipopt.linear_solver': 'MA27', 'error_on_fail': True}
         self.optim = nlpsol('optim', 'ipopt', optim_dict, opts)
+
         # Create function to calculate buffer memory from parameter and optimization variable trajectories
-        # self.aux_fun=Function('aux_fun', [s_buffer_0, s_circuit_0]+v_in_discard+v_in_extra+v_in_req+[j for i in cv_in for j in i]+v_out+[Pb, Pc],
-        #                         s_buffer+s_circuit+v_in_max+[j for i in cv_out for j in i])
+        self.aux_fun = Function('aux_fun', [mpc_obj_x, mpc_obj_p], [mpc_obj_aux])
 
     def solve(self, s_buffer_0, s_circuit_0, v_in_req, cv_in, v_out_max, bandwidth_load_target, s_buffer_target, bandwidth_load_source, s_buffer_source, *args, **kwargs):
         """
@@ -320,35 +342,6 @@ class optimal_traffic_scheduler:
         assert np.isclose(np.sum(s_buffer_0), np.sum(s_circuit_0)), 'Inconsistent initial conditions.'
         # TODO: Continue checks, add option to avoid checks.
 
-        # mpc_obj_p=struct_symSX([
-        #     entry('tvp', repeat=self.N_steps, struct=self.mpc_tvpk),
-        #     entry('p',   struct=self.mpc_pk),
-        #     entry('x0',  struct=self.mpc_xk)
-        # ])
-        #
-        # """ MPC states for stage k"""
-        # self.mpc_xk=struct_symSX([
-        #     entry('s_buffer', shape=(self.n_out, 1)),
-        #     entry('s_circuit', shape=(np.sum(self.n_circuit_in), 1)),
-        # ])
-        # """ MPC time-varying parameters for stage k"""
-        # cv_in=struct_symSX([entry(str(i), shape=(self.n_circuit_in[i], 1)) for i in range(self.n_in)])
-        # self.mpc_tvpk = struct_symSX([
-        #     entry('u_prev', struct=self.mpc_uk),
-        #     entry('v_in_req', shape=(self.n_in, 1)),
-        #     entry('cv_in', struct=cv_in_struct),
-        #     entry('v_out_max', shape=(self.n_out, 1)),
-        #     entry('bandwidth_load_target', shape=(self.n_out, 1)),
-        #     entry('s_buffer_target', shape=(self.n_out, 1)),
-        #     entry('bandwidth_load_source', shape=(self.n_in, 1)),
-        #     entry('s_buffer_source', shape=(self.n_in, 1)),
-        # ])
-        # """ MPC parameters for stage k"""
-        # self.mpc_pk=struct_symSX([
-        #     entry('Pb', shape=(self.n_out, np.sum(self.n_circuit_in))),
-        #     entry('Pc', shape=(np.sum(self.n_circuit_in), np.sum(self.n_circuit_in))),
-        # ])
-
         """ Set initial condition """
         self.mpc_obj_p_num['x0', 's_buffer'] = s_buffer_0
         self.mpc_obj_p_num['x0', 's_circuit'] = s_circuit_0
@@ -367,32 +360,26 @@ class optimal_traffic_scheduler:
         self.mpc_obj_p_num['tvp', :, 's_buffer_source'] = s_buffer_source
 
         """Solve optimization problem for given conditions:"""
-        pdb.set_trace()
         optim_results = self.optim(ubg=self.cons_ub, lbg=self.cons_lb, p=self.mpc_obj_p_num, x0=self.mpc_obj_x_num)
         optim_stats = self.optim.stats()
 
-        """ Retrieve trajectories from solution: """
+        """ Assign solution to mpc_obj_x_num to allow easy accessibility: """
         self.mpc_obj_x_num = self.mpc_obj_x(optim_results['x'])
 
-        optim_sol = optim_results['x'].full()
-        v_out, v_in_discard, v_in_extra = np.split(optim_sol, [self.N_steps*self.n_out, self.N_steps*(self.n_out+self.n_in)])
-        # Return to timestep per list item format:
-        v_out = [v_out_i.reshape(-1, 1) for v_out_i in np.split(v_out, self.N_steps)]
-        v_in_discard = [v_in_discard_i.reshape(-1, 1) for v_in_discard_i in np.split(v_in_discard, self.N_steps)]
-        v_in_extra = [v_in_extra_i.reshape(-1, 1) for v_in_extra_i in np.split(v_in_extra, self.N_steps)]
-        # Calculate additional trajectories:
-        aux_values = self.aux_fun(s_buffer_0, s_circuit_0, *v_in_discard, *v_in_extra, *v_in_req, *[j for i in cv_in for j in i], *v_out, self.Pb, self.Pc)
-        aux_values = [aux_i.full() for aux_i in aux_values]
+        """ Calculate aux values: """
+        self.mpc_obj_aux_num = self.mpc_obj_aux(self.aux_fun(self.mpc_obj_x_num, self.mpc_obj_p_num))
 
-        s_buffer, s_circuit, v_in_max, cv_out = self.split_list(aux_values, (np.array([1, 2, 3])*self.N_steps).tolist())
-        cv_out = self.split_list(cv_out, self.n_out)
-        v_in = [v_in_req_i - v_in_discard_i for v_in_req_i, v_in_discard_i in zip(v_in_req, v_in_discard)]
+        """ Retrieve relevant trajectories """
 
-        # Calculate trajectory for bandwidth and memory:
-        bandwidth_load_node = [(np.sum(v_out_i, keepdims=True)+np.sum(v_in_i, keepdims=True))/(self.v_in_max_total+self.v_out_max_total) for v_out_i,
-                               v_in_i in zip(v_out, v_in)]
+        v_out = self.mpc_obj_x_num['u', :, 'v_out']
+        cv_out = self.mpc_obj_aux_num['aux', :, 'cv_out']
+        v_in_max = self.mpc_obj_aux_num['aux':, 'v_in_max']
 
-        # memory_load_node = [np.sum(s_buffer_i, keepdims=True)/self.s_softmax for s_buffer_i in s_buffer]
+        s_buffer = self.mpc_obj_x_num['x', :, 's_buffer']
+        s_circuit = self.mpc_obj_x_num['x', :, 's_circuit']
+
+        bandwidth_load_in = self.mpc_obj_aux_num['aux':, 'bandwidth_load_in']
+        bandwidth_load_out = self.mpc_obj_aux_num['aux':, 'bandwidth_load_out']
 
         """ Advance time and record values """
         self.time = self.time + self.dt
