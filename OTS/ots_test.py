@@ -26,12 +26,9 @@ n_circuit_out = [len(c_i) for c_i in circuits_out]
 
 ots.setup(n_in, n_out, circuits_in, circuits_out)
 
-
 # Create some dummy data:
-s_buffer_0 = np.zeros((n_out, 1))
-s_buffer_0[0] = 50
-s_circuit_0 = np.zeros((np.sum(n_circuit_in), 1))
-s_circuit_0[0] = 50
+s_circuit_0 = np.array([50, 10, 70]).reshape(-1, 1)
+s_buffer_0 = ots.Pb@s_circuit_0
 
 v_in_req = [np.array([[10, 3]]).T]*ots.N_steps
 
@@ -44,7 +41,7 @@ bandwidth_load_target = [np.array([[0, 0, 0]]).T]*ots.N_steps
 s_buffer_target = [np.array([[100, 10, 50]]).T]*ots.N_steps
 
 bandwidth_load_source = [np.array([[200, 50]]).T]*ots.N_steps
-s_buffer_source = [np.array([[0, 0]]).T]*ots.N_steps
+s_buffer_source = [np.array([[50, 50]]).T]*ots.N_steps
 
 
 # Call the solver:

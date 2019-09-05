@@ -97,6 +97,9 @@ class optimal_traffic_scheduler:
             entry('s_buffer', shape=(self.n_out, 1)),
             entry('s_circuit', shape=(np.sum(self.n_circuit_in), 1)),
         ])
+        # States at next time-step. Same structure as mpc_xk. Will be assigned expressions later on.
+        self.mpc_xk_next = struct_SX(self.mpc_xk)
+
         """ MPC control inputs for stage k"""
         self.mpc_uk = struct_symSX([
             entry('v_in_discard', shape=(self.n_in, 1)),
@@ -185,10 +188,11 @@ class optimal_traffic_scheduler:
 
         cv_out = [sc_i/(s_tilde_next[i]+eps) for i, sc_i in enumerate(vertsplit(sc_tilde_next, np.cumsum([0]+self.n_circuit_out)))]
         vc_out = vertcat(*[v_out_i*c_out_i for v_out_i, c_out_i in zip(v_out_list, cv_out)])
-        s_next = s_tilde_next - self.dt*v_out
-        sc_next = sc_tilde_next - self.dt*vc_out
+        s_buffer_next = s_tilde_next - self.dt*v_out
+        s_circuit_next = sc_tilde_next - self.dt*vc_out
 
-        mpc_xk_next = vertcat(s_next, sc_next)
+        self.mpc_xk_next['s_buffer'] = s_buffer_next
+        self.mpc_xk_next['s_circuit'] = s_circuit_next
 
         cons_list = [
             {'lb': [-np.inf],            'eq': sum1(v_in_max)-self.v_in_max_total, 'ub': [0]},             # sum of all incoming traffic can't exceed v_in_max_total
@@ -243,7 +247,7 @@ class optimal_traffic_scheduler:
         mpc_problem['cons_lb'] = cons_lb
         mpc_problem['cons_ub'] = cons_ub
         mpc_problem['obj'] = Function('obj', [self.mpc_xk, self.mpc_uk, self.mpc_tvpk, self.mpc_pk], [obj])
-        mpc_problem['model'] = Function('model', [self.mpc_xk, self.mpc_uk, self.mpc_tvpk, self.mpc_pk], [mpc_xk_next])
+        mpc_problem['model'] = Function('model', [self.mpc_xk, self.mpc_uk, self.mpc_tvpk, self.mpc_pk], [self.mpc_xk_next])
         mpc_problem['aux'] = Function('aux', [self.mpc_xk, self.mpc_uk, self.mpc_tvpk, self.mpc_pk], [self.mpc_aux_expr])
 
         self.mpc_problem = mpc_problem
