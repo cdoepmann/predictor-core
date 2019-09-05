@@ -57,39 +57,17 @@ class optimal_traffic_scheduler:
         assert len(self.n_circuit_out) == self.n_out
         assert np.sum(self.n_circuit_in) == np.sum(self.n_circuit_out)
 
-        self.initialize_prediction()
-        if self.record_values:
-            self.initialize_record()
         self.problem_formulation()
         self.create_optim()
 
-    def initialize_prediction(self):
-        # Initial conditions:
-        self.predict = [{
-            'v_out': [np.zeros((self.n_out, 1))]*self.N_steps,
-            'v_out_max': [self.v_out_max_total/(self.n_out)*np.ones((self.n_out, 1))]*self.N_steps,
-            'cv_out': [[np.zeros((n_circuit_out_i, 1)) for n_circuit_out_i in self.n_circuit_out]]*self.N_steps,
-            'v_in': [np.zeros((self.n_in, 1))]*self.N_steps,
-            'v_in_req': [np.zeros((self.n_in, 1))]*self.N_steps,
-            'v_in_max': [self.v_in_max_total/(self.n_in)*np.ones((self.n_in, 1))]*self.N_steps,
-            'cv_in': [[np.ones((n_circuit_in_i, 1))/n_circuit_in_i for n_circuit_in_i in self.n_circuit_in]]*self.N_steps,
-            's_buffer': [np.zeros((self.n_out, 1))]*self.N_steps,
-            's_circuit': [np.zeros((np.sum(self.n_circuit_in), 1))]*self.N_steps,
-            'bandwidth_load_in': [np.zeros((1, 1))]*self.N_steps,
-            'bandwidth_load_out': [np.zeros((1, 1))]*self.N_steps,
-            'bandwidth_load_target': [np.zeros((self.n_out, 1))]*self.N_steps,
-            's_buffer_target': [np.zeros((self.n_out, 1))]*self.N_steps,
-            'bandwidth_load_source': [np.zeros((self.n_in, 1))]*self.N_steps,
-            's_buffer_source': [np.zeros((self.n_in, 1))]*self.N_steps,
-        }]
-
     def initialize_record(self):
+        assert 'predict' in self.__dict__.keys(), 'Cant initialize record before solve() was called and initial values for predict created.'
         self.record = {}
         self.record['time'] = []
         # Set the first element of the predicted values as the first element of the recorded values.
-        for predict_key in self.predict[0].keys():
+        for predict_key in self.predict.keys():
             self.record[predict_key] = []
-            self.record[predict_key].append(self.predict[0][predict_key][0])
+            self.record[predict_key].append(self.predict[predict_key][0])
 
     def problem_formulation(self):
         """ MPC states for stage k"""
@@ -211,6 +189,9 @@ class optimal_traffic_scheduler:
         obj = sum1(-1/fmax(s_buffer_source, 1)*v_in_max)
         obj += sum1(-1/fmax(s_buffer, 1)*v_out)
 
+        # Control delta regularization
+        obj += self.weights['control_delta']*sum1((self.mpc_uk-self.mpc_tvpk['u_prev'])**2)
+
         # Constraints for fairness:
         # Input
         for i in range(self.n_in):
@@ -240,6 +221,7 @@ class optimal_traffic_scheduler:
             entry('bandwidth_load_in', expr=bandwidth_load_in),
             entry('bandwidth_load_out', expr=bandwidth_load_out),
         ])
+        pdb.set_trace()
 
         """ Problem dictionary """
         mpc_problem = {}
@@ -255,9 +237,16 @@ class optimal_traffic_scheduler:
     def create_optim(self):
         # Initialize trajectory lists (each list item, one time-step):
         self.mpc_obj_x = mpc_obj_x = struct_symSX([
-            entry('x', repeat=self.N_steps, struct=self.mpc_xk),
+            entry('x', repeat=self.N_steps+1, struct=self.mpc_xk),
             entry('u', repeat=self.N_steps, struct=self.mpc_uk),
         ])
+
+        # Note that:
+        # x = [x_0, x_1, ... , x_N+1]   (N+1 elements)
+        # u = [u_0, u_1, ... , u_N]     (N elements)
+        # For the optimization variable x_0 we introduce the simple equality constraint that it has
+        # to be equal to the parameter x0 (mpc_obj_p)
+
         self.mpc_obj_p = mpc_obj_p = struct_symSX([
             entry('tvp', repeat=self.N_steps, struct=self.mpc_tvpk),
             entry('p',   struct=self.mpc_pk),
@@ -278,19 +267,19 @@ class optimal_traffic_scheduler:
         cons_ub = []
         cons_lb = []
 
+        # Equality constraint for first state:
+        cons.append(mpc_obj_x['x', 0]-mpc_obj_p['x0'])
+        cons_lb.append(np.zeros(self.mpc_xk.shape))
+        cons_ub.append(np.zeros(self.mpc_xk.shape))
+
         # Recursively evaluate system equation and add stage cost and stage constraints:
         for k in range(self.N_steps):
-            # For the first step use initial condition:
-            if k == 0:
-                mpc_xk_next = self.mpc_problem['model'](mpc_obj_p['x0'], mpc_obj_x['u', k], mpc_obj_p['tvp', k], mpc_obj_p['p'])
-            else:  # In suceeding steps use current x
-                mpc_xk_next = self.mpc_problem['model'](mpc_obj_x['x', k], mpc_obj_x['u', k], mpc_obj_p['tvp', k], mpc_obj_p['p'])
+            mpc_xk_next = self.mpc_problem['model'](mpc_obj_x['x', k], mpc_obj_x['u', k], mpc_obj_p['tvp', k], mpc_obj_p['p'])
+
             # State constraint:
-            if k < self.N_steps-1:
-                cons.append(mpc_xk_next-mpc_obj_x['x', k+1])
-                # TODO: Check if np.zeros(self.mpc_xk.shape) yields the desired effect.
-                cons_lb.append(np.zeros(self.mpc_xk.shape))
-                cons_ub.append(np.zeros(self.mpc_xk.shape))
+            cons.append(mpc_xk_next-mpc_obj_x['x', k+1])
+            cons_lb.append(np.zeros(self.mpc_xk.shape))
+            cons_ub.append(np.zeros(self.mpc_xk.shape))
 
             # Add the "stage cost" to the objective
             obj += self.mpc_problem['obj'](mpc_obj_x['x', k], mpc_obj_x['u', k], mpc_obj_p['tvp', k], mpc_obj_p['p'])
@@ -380,7 +369,8 @@ class optimal_traffic_scheduler:
         """ Retrieve relevant trajectories """
 
         v_out = self.mpc_obj_x_num['u', :, 'v_out']
-        cv_out = [np.split(self.mpc_obj_aux_num['aux', k, 'cv_out'], np.cumsum(self.n_circuit_out[:-1])) for k in range(self.N_steps)]
+        pdb.set_trace()
+        cv_out = self.mpc_obj_aux_num['aux', :, 'cv_out']
 
         v_in = self.mpc_obj_aux_num['aux', :, 'v_in']
         v_in_max = self.mpc_obj_aux_num['aux', :, 'v_in_max']
@@ -402,14 +392,16 @@ class optimal_traffic_scheduler:
         self.predict['v_out'] = v_out
         self.predict['v_out_max'] = v_out_max
         self.predict['cv_out'] = cv_out
-        self.predict['s_buffer'] = s_buffer
-        self.predict['s_circuit'] = s_circuit
+        self.predict['s_buffer'] = s_buffer[:self.N_steps]   # clip last element (state at N+1)
+        self.predict['s_circuit'] = s_circuit[:self.N_steps]  # clip last element (state at N+1)
         self.predict['bandwidth_load_in'] = bandwidth_load_in
         self.predict['bandwidth_load_out'] = bandwidth_load_out
         self.predict['bandwidth_load_target'] = bandwidth_load_target
         self.predict['bandwidth_load_source'] = bandwidth_load_source
 
         if self.record_values:
+            if not 'record' in self.__dict__.keys():
+                self.initialize_record()
             self.record_fun()
 
         if not optim_stats['success']:
