@@ -195,14 +195,14 @@ class optimal_traffic_scheduler:
         # All inputs with lower bound 0 and upper bound infinity
         self.mpc_uk_lb = self.mpc_uk(0)
         self.mpc_uk_ub = self.mpc_uk(np.inf)
-        self.mpc_uk_ub['v_out'] = self.v_out_max_total
 
         # Further (non-linear constraints on states and inputs)
         cons_list = [
             {'lb': [-np.inf]*self.n_in,  'eq': -v_in,                              'ub': [0]*self.n_in},   # v_in cant be negative (Note: v_in is not an input)
             {'lb': [-np.inf],            'eq': sum1(v_in_max)-self.v_in_max_total, 'ub': [0]},             # sum of all incoming traffic can't exceed v_in_max_total
             {'lb': [-eps]*self.n_in,     'eq': v_in_discard*v_in_extra,            'ub': [eps]*self.n_in},  # packets can be discarded or added (not both). Should be zero but is better to be within a certain tolerance.
-            {'lb': [-np.inf]*self.n_out, 'eq': v_out-v_out_max,                    'ub': [0]*self.n_out},  # outgoing packet stream cant be negative
+            {'lb': [-np.inf]*self.n_out, 'eq': v_out-v_out_max,                    'ub': [0]*self.n_out},  # outgoing packet stream cant be greater than what is allowed individually
+            {'lb': [-np.inf],            'eq': sum1(v_out)-self.v_out_max_total,   'ub': [0]},             # outgoing packet stream cant be greater than what is allowed in total.
             #        {'lb': [-np.inf]*self.n_in,  'eq': v_in_max*self.dt-s_buffer_source,   'ub': [0]*self.n_in},   # Can't receive more than what is available in source_buffer.
         ]
 
