@@ -4,11 +4,11 @@ from optimal_traffic_scheduler import optimal_traffic_scheduler
 import pdb
 
 setup_dict = {}
-setup_dict['v_in_max_total'] = 20  # packets / s
-setup_dict['v_out_max_total'] = 20  # packets / s
+setup_dict['v_in_max_total'] = 10  # packets / s
+setup_dict['v_out_max_total'] = 15  # packets / s
 setup_dict['dt'] = 1  # s
 setup_dict['N_steps'] = 20
-setup_dict['weights'] = {'control_delta': 0.1, 'send': 1, 'store': 0, 'receive': 1}
+setup_dict['weights'] = {'control_delta': 0., 'send': 1, 'store': 0, 'receive': 1}
 
 ots = optimal_traffic_scheduler(setup_dict)
 
@@ -34,7 +34,7 @@ v_in_req = [np.array([[20, 6]]).T]*ots.N_steps
 cv_in = [[np.array([[0.5, 0.5]]).T, np.array([[0.3, 0.5, 0.2]]).T]]*ots.N_steps
 
 
-v_out_max = [np.array([[5, 5, 5]]).T]*ots.N_steps
+v_out_max = [np.array([[5, 10, 12]]).T]*ots.N_steps
 
 bandwidth_load_target = [np.array([[0, 0, 0]]).T]*ots.N_steps
 s_buffer_target = [np.array([[10, 10, 10]]).T]*ots.N_steps
@@ -59,10 +59,10 @@ ax[1, 0].step(range(ots.N_steps), np.concatenate(ots.predict['v_out'], axis=1).T
 ax[1, 1].step(range(ots.N_steps), np.concatenate(ots.predict['v_in'], axis=1).T)
 ax[1, 2].step(range(ots.N_steps), np.concatenate(ots.predict['s_buffer'], axis=1).T)
 
-ax[0, 0].set_ylim(bottom=-0.1, top=1.2*setup_dict['v_out_max_total'])
-ax[0, 1].set_ylim(bottom=-0.1, top=1.2*setup_dict['v_in_max_total'])
-ax[1, 0].set_ylim(bottom=-0.1, top=1.2*setup_dict['v_out_max_total'])
-ax[1, 1].set_ylim(bottom=-0.1, top=1.2*setup_dict['v_in_max_total'])
+# ax[0, 0].set_ylim(bottom=-0.1, top=1.2*setup_dict['v_out_max_total'])
+# ax[0, 1].set_ylim(bottom=-0.1, top=1.2*setup_dict['v_in_max_total'])
+# ax[1, 0].set_ylim(bottom=-0.1, top=1.2*setup_dict['v_out_max_total'])
+# ax[1, 1].set_ylim(bottom=-0.1, top=1.2*setup_dict['v_in_max_total'])
 
 ax[0, 0].set_title('Outgoing packets')
 ax[0, 1].set_title('Incoming packets')

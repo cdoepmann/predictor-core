@@ -185,12 +185,12 @@ class optimal_traffic_scheduler:
             {'lb': [-np.inf]*self.n_out, 'eq': -s_buffer,                          'ub': [0]*self.n_out},  # buffer memory cant be <0 (for each output buffer)
             {'lb': [-np.inf]*self.n_out, 'eq': -v_out,                             'ub': [0]*self.n_out},  # outgoing packet stream cant be negative
             {'lb': [-np.inf]*self.n_out, 'eq': v_out-v_out_max,                    'ub': [0]*self.n_out},  # outgoing packet stream cant be negative
-            #    {'lb': [-np.inf]*self.n_in,  'eq': v_in_max*self.dt-s_buffer_source,   'ub': [0]*self.n_in},   # Can't receive more than what is available in source_buffer.
+            {'lb': [-np.inf]*self.n_in,  'eq': v_in_max*self.dt-s_buffer_source,   'ub': [0]*self.n_in},   # Can't receive more than what is available in source_buffer.
         ]
 
         # Objective function with fairness formulation:
-        obj = sum1(-sum1(s_buffer_source)/(s_buffer_source+1)*v_in_max)
-        obj += sum1(-sum1(s_buffer)/(s_buffer+1)*v_out)
+        obj = sum1(-1/(s_buffer_source+1)*v_in_max)
+        obj += sum1(-1/(s_buffer+1)*v_out)
 
         # Control delta regularization
         obj += self.weights['control_delta']*sum1((self.mpc_uk-self.mpc_tvpk['u_prev'])**2)
@@ -200,13 +200,13 @@ class optimal_traffic_scheduler:
         for i in range(self.n_in):
             for j in range(self.n_in):
                 cons_list.append(
-                    {'lb': [-np.inf], 'eq': fmax(s_buffer_source[i]-s_buffer_source[j], 0)*(v_in_max[j]-v_in_max[i]), 'ub': [0]},
+                    {'lb': [-np.inf], 'eq': (s_buffer_source[i]-s_buffer_source[j])*(v_in_max[j]-v_in_max[i]), 'ub': [0]},
                 )
         # Output
         for i in range(self.n_out):
             for j in range(self.n_out):
                 cons_list.append(
-                    {'lb': [-np.inf], 'eq': fmax(s_buffer[i]-s_buffer[j], 0)*(v_out[j]-v_out[i]), 'ub': [0]},
+                    {'lb': [-np.inf], 'eq': (s_buffer[i]-s_buffer[j])*(v_out[j]-v_out[i]), 'ub': [0]},
                 )
 
         cons = vertcat(*[con_i['eq'] for con_i in cons_list])
