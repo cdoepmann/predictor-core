@@ -120,8 +120,6 @@ class optimal_traffic_scheduler:
         v_in_discard = self.mpc_uk['v_in_discard']
         # Additional packet contigent that could be accepted.
         v_in_extra = self.mpc_uk['v_in_extra']
-        # v_in_max from previous solution
-        # v_in_max_prev = self.mpc_tvpk['u_prev', 'v_in_max']
         # Resulting incoming packet stream:
         v_in = v_in_req - v_in_discard
         # Allowed incoming packet stream:
@@ -163,9 +161,14 @@ class optimal_traffic_scheduler:
         # Protected division. The denominator can only be zero, if the numerator is also zero. cv_out_i = 0 in that case
         # and would be NaN without using the eps value.
         eps = 1e-6
+        # cv_out = s_circuit/(mtimes(Pb.T, s_buffer)+eps)
+        # cv_out = (sc_tilde_next)/(self.Pc@self.Pb.T@s_tilde_next+eps)
 
         cv_out = [sc_i/(s_tilde_next[i]+eps) for i, sc_i in enumerate(vertsplit(sc_tilde_next, np.cumsum([0]+self.n_circuit_out)))]
-        vc_out = vertcat(*[v_out_i*c_out_i for v_out_i, c_out_i in zip(v_out_list, cv_out)])
+        vc_out = vertcat(*[v_out_i*cv_out_i for cv_out_i, v_out_i in zip(cv_out, v_out_list)])
+
+        # vc_out = (self.Pc@Pb.T@v_out)*cv_out
+
         s_buffer_next = s_tilde_next - self.dt*v_out
         s_circuit_next = sc_tilde_next - self.dt*vc_out
 
@@ -182,12 +185,12 @@ class optimal_traffic_scheduler:
             {'lb': [-np.inf]*self.n_out, 'eq': -s_buffer,                          'ub': [0]*self.n_out},  # buffer memory cant be <0 (for each output buffer)
             {'lb': [-np.inf]*self.n_out, 'eq': -v_out,                             'ub': [0]*self.n_out},  # outgoing packet stream cant be negative
             {'lb': [-np.inf]*self.n_out, 'eq': v_out-v_out_max,                    'ub': [0]*self.n_out},  # outgoing packet stream cant be negative
-            {'lb': [-np.inf]*self.n_in,  'eq': v_in_max*self.dt-s_buffer_source,   'ub': [0]*self.n_in},   # Can't receive more than what is available in source_buffer.
+            #    {'lb': [-np.inf]*self.n_in,  'eq': v_in_max*self.dt-s_buffer_source,   'ub': [0]*self.n_in},   # Can't receive more than what is available in source_buffer.
         ]
 
         # Objective function with fairness formulation:
-        obj = sum1(-1/fmax(s_buffer_source, 1)*v_in_max)
-        obj += sum1(-1/fmax(s_buffer, 1)*v_out)
+        obj = sum1(-sum1(s_buffer_source)/(s_buffer_source+1)*v_in_max)
+        obj += sum1(-sum1(s_buffer)/(s_buffer+1)*v_out)
 
         # Control delta regularization
         obj += self.weights['control_delta']*sum1((self.mpc_uk-self.mpc_tvpk['u_prev'])**2)
@@ -216,12 +219,14 @@ class optimal_traffic_scheduler:
 
         self.mpc_aux_expr = struct_SX([
             entry('v_in', expr=v_in),
+            # entry('vc_in', expr=vc_in),
+            # entry('s_tilde_next', expr=s_tilde_next),
+            # entry('sc_tilde_next', expr=sc_tilde_next),
             entry('v_in_max', expr=v_in_max),
-            entry('cv_out', expr=cv_out),
+            entry('cv_out', expr=vertcat(*cv_out)),
             entry('bandwidth_load_in', expr=bandwidth_load_in),
             entry('bandwidth_load_out', expr=bandwidth_load_out),
         ])
-        pdb.set_trace()
 
         """ Problem dictionary """
         mpc_problem = {}
@@ -336,7 +341,8 @@ class optimal_traffic_scheduler:
         """
 
         """ Check if inputs are valid """
-        assert np.isclose(np.sum(s_buffer_0), np.sum(s_circuit_0)), 'Inconsistent initial conditions.'
+        assert np.isclose(np.sum(s_buffer_0), np.sum(s_circuit_0)), 'Inconsistent initial conditions: sum of s_buffer_0 is not equal sum of s_circuit_0'
+        assert np.allclose(self.Pb@self.Pc.T@s_circuit_0, s_buffer_0), 'Inconsistent initial conditions: s_circuit_0 and s_buffer_0 are not matching for the given setup.'
         # TODO: Continue checks, add option to avoid checks.
 
         """ Set initial condition """
@@ -356,6 +362,10 @@ class optimal_traffic_scheduler:
         self.mpc_obj_p_num['tvp', :, 'bandwidth_load_source'] = bandwidth_load_source
         self.mpc_obj_p_num['tvp', :, 's_buffer_source'] = s_buffer_source
 
+        """ Assign parameters """
+        self.mpc_obj_p_num['p', 'Pb'] = self.Pb
+        self.mpc_obj_p_num['p', 'Pc'] = self.Pc
+
         """Solve optimization problem for given conditions:"""
         optim_results = self.optim(ubg=self.cons_ub, lbg=self.cons_lb, p=self.mpc_obj_p_num, x0=self.mpc_obj_x_num)
         optim_stats = self.optim.stats()
@@ -369,11 +379,11 @@ class optimal_traffic_scheduler:
         """ Retrieve relevant trajectories """
 
         v_out = self.mpc_obj_x_num['u', :, 'v_out']
-        pdb.set_trace()
-        cv_out = self.mpc_obj_aux_num['aux', :, 'cv_out']
+        cv_out = [np.split(self.mpc_obj_aux_num['aux', k, 'cv_out'], np.cumsum(self.n_circuit_out[:-1])) for k in range(self.N_steps)]
 
         v_in = self.mpc_obj_aux_num['aux', :, 'v_in']
         v_in_max = self.mpc_obj_aux_num['aux', :, 'v_in_max']
+        # pdb.set_trace()
 
         s_buffer = self.mpc_obj_x_num['x', :, 's_buffer']
         s_circuit = self.mpc_obj_x_num['x', :, 's_circuit']
