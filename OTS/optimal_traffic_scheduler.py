@@ -153,7 +153,7 @@ class optimal_traffic_scheduler:
         # Assignment Matrix: Which input circuit is directed to which output circuit:
         Pc = self.mpc_pk['Pc']
 
-        """ System dynamics and constraints and objective"""
+        """ System dynamics"""
         # system dynamics, constraints and objective definition:
         s_tilde_next = s_buffer + self.dt*Pb@vc_in
         sc_tilde_next = s_circuit + self.dt*Pc@vc_in
@@ -175,6 +175,17 @@ class optimal_traffic_scheduler:
         self.mpc_xk_next['s_buffer'] = s_buffer_next
         self.mpc_xk_next['s_circuit'] = s_circuit_next
 
+        """ Objective """
+
+        # Objective function with fairness formulation:
+        obj = sum1(-1/(s_buffer_source+1)*v_in_max)
+        obj += sum1(-1/(s_buffer+1)*v_out)
+
+        # Control delta regularization
+        obj += self.weights['control_delta']*sum1((self.mpc_uk-self.mpc_tvpk['u_prev'])**2)
+
+        """ Constraints"""
+
         cons_list = [
             {'lb': [-np.inf],            'eq': sum1(v_in_max)-self.v_in_max_total, 'ub': [0]},             # sum of all incoming traffic can't exceed v_in_max_total
             {'lb': [-np.inf],            'eq': sum1(v_out)-self.v_out_max_total,   'ub': [0]},             # sum of all outgoing traffic can't exceed v_out_max_total
@@ -185,15 +196,8 @@ class optimal_traffic_scheduler:
             {'lb': [-np.inf]*self.n_out, 'eq': -s_buffer,                          'ub': [0]*self.n_out},  # buffer memory cant be <0 (for each output buffer)
             {'lb': [-np.inf]*self.n_out, 'eq': -v_out,                             'ub': [0]*self.n_out},  # outgoing packet stream cant be negative
             {'lb': [-np.inf]*self.n_out, 'eq': v_out-v_out_max,                    'ub': [0]*self.n_out},  # outgoing packet stream cant be negative
-            {'lb': [-np.inf]*self.n_in,  'eq': v_in_max*self.dt-s_buffer_source,   'ub': [0]*self.n_in},   # Can't receive more than what is available in source_buffer.
+            #        {'lb': [-np.inf]*self.n_in,  'eq': v_in_max*self.dt-s_buffer_source,   'ub': [0]*self.n_in},   # Can't receive more than what is available in source_buffer.
         ]
-
-        # Objective function with fairness formulation:
-        obj = sum1(-1/(s_buffer_source+1)*v_in_max)
-        obj += sum1(-1/(s_buffer+1)*v_out)
-
-        # Control delta regularization
-        obj += self.weights['control_delta']*sum1((self.mpc_uk-self.mpc_tvpk['u_prev'])**2)
 
         # Constraints for fairness:
         # Input
@@ -206,7 +210,7 @@ class optimal_traffic_scheduler:
         for i in range(self.n_out):
             for j in range(self.n_out):
                 cons_list.append(
-                    {'lb': [-np.inf], 'eq': (s_buffer[i]-s_buffer[j])*(v_out[j]-v_out[i]), 'ub': [0]},
+                    {'lb': [-np.inf], 'eq': (v_out_max[i]-v_out[i])*(v_out_max[j]-v_out[j])*(s_buffer[i]-s_buffer[j])*(v_out[j]-v_out[i]), 'ub': [0]},
                 )
 
         cons = vertcat(*[con_i['eq'] for con_i in cons_list])
@@ -242,12 +246,12 @@ class optimal_traffic_scheduler:
     def create_optim(self):
         # Initialize trajectory lists (each list item, one time-step):
         self.mpc_obj_x = mpc_obj_x = struct_symSX([
-            entry('x', repeat=self.N_steps+1, struct=self.mpc_xk),
+            entry('x', repeat=self.N_steps, struct=self.mpc_xk),
             entry('u', repeat=self.N_steps, struct=self.mpc_uk),
         ])
 
         # Note that:
-        # x = [x_0, x_1, ... , x_N+1]   (N+1 elements)
+        # x = [x_0, x_1, ... , x_N]     (N elements)
         # u = [u_0, u_1, ... , u_N]     (N elements)
         # For the optimization variable x_0 we introduce the simple equality constraint that it has
         # to be equal to the parameter x0 (mpc_obj_p)
@@ -282,9 +286,10 @@ class optimal_traffic_scheduler:
             mpc_xk_next = self.mpc_problem['model'](mpc_obj_x['x', k], mpc_obj_x['u', k], mpc_obj_p['tvp', k], mpc_obj_p['p'])
 
             # State constraint:
-            cons.append(mpc_xk_next-mpc_obj_x['x', k+1])
-            cons_lb.append(np.zeros(self.mpc_xk.shape))
-            cons_ub.append(np.zeros(self.mpc_xk.shape))
+            if k < self.N_steps-1:
+                cons.append(mpc_xk_next-mpc_obj_x['x', k+1])
+                cons_lb.append(np.zeros(self.mpc_xk.shape))
+                cons_ub.append(np.zeros(self.mpc_xk.shape))
 
             # Add the "stage cost" to the objective
             obj += self.mpc_problem['obj'](mpc_obj_x['x', k], mpc_obj_x['u', k], mpc_obj_p['tvp', k], mpc_obj_p['p'])
@@ -402,8 +407,8 @@ class optimal_traffic_scheduler:
         self.predict['v_out'] = v_out
         self.predict['v_out_max'] = v_out_max
         self.predict['cv_out'] = cv_out
-        self.predict['s_buffer'] = s_buffer[:self.N_steps]   # clip last element (state at N+1)
-        self.predict['s_circuit'] = s_circuit[:self.N_steps]  # clip last element (state at N+1)
+        self.predict['s_buffer'] = s_buffer  # [:self.N_steps]   # clip last element (state at N+1)
+        self.predict['s_circuit'] = s_circuit  # [:self.N_steps]  # clip last element (state at N+1)
         self.predict['bandwidth_load_in'] = bandwidth_load_in
         self.predict['bandwidth_load_out'] = bandwidth_load_out
         self.predict['bandwidth_load_target'] = bandwidth_load_target
