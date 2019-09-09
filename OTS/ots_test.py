@@ -8,7 +8,7 @@ setup_dict['v_in_max_total'] = 15  # packets / s
 setup_dict['v_out_max_total'] = 15  # packets / s
 setup_dict['dt'] = 0.01  # s
 setup_dict['N_steps'] = 20
-setup_dict['weights'] = {'control_delta': 0., 'send': 1, 'store': 0, 'receive': 1}
+setup_dict['weights'] = {'control_delta': 1e-3, 'send': 1, 'store': 0, 'receive': 1}
 
 ots = optimal_traffic_scheduler(setup_dict)
 
@@ -40,7 +40,7 @@ bandwidth_load_target = [np.array([[0, 0, 0]]).T]*ots.N_steps
 s_buffer_target = [np.array([[10, 10, 10]]).T]*ots.N_steps
 
 bandwidth_load_source = [np.array([[0, 0]]).T]*ots.N_steps
-s_buffer_source = [np.array([[25, 50]]).T]*ots.N_steps
+s_buffer_source = [np.array([[10, 50]]).T]*ots.N_steps
 
 
 # Call the solver:
