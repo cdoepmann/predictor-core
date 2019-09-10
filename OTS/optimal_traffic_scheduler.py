@@ -97,7 +97,6 @@ class optimal_traffic_scheduler:
             entry('v_in_req', shape=(self.n_in, 1)),
             entry('cv_in', struct=cv_in_struct),
             entry('v_out_max', shape=(self.n_out, 1)),
-            entry('s_buffer_target', shape=(self.n_out, 1)),
             entry('s_buffer_source', shape=(self.n_in, 1)),
         ])
         """ MPC parameters for stage k"""
@@ -139,8 +138,6 @@ class optimal_traffic_scheduler:
         # v_out from the previous solution:
 
         """ Load information """
-        # memory info outgoing servers
-        s_buffer_target = self.mpc_tvpk['s_buffer_target']
         # memory info incoming servers
         s_buffer_source = self.mpc_tvpk['s_buffer_source']
 
@@ -346,7 +343,7 @@ class optimal_traffic_scheduler:
         # Create function to calculate buffer memory from parameter and optimization variable trajectories
         self.aux_fun = Function('aux_fun', [mpc_obj_x, mpc_obj_p], [mpc_obj_aux])
 
-    def solve(self, s_buffer_0, s_circuit_0, v_in_req, cv_in, v_out_max, s_buffer_target, s_buffer_source, *args, **kwargs):
+    def solve(self, s_buffer_0, s_circuit_0, v_in_req, cv_in, v_out_max, s_buffer_source, *args, **kwargs):
         """
         Solves the optimal control problem defined in optimal_traffic_scheduler.problem_formulation().
         Inputs:
@@ -357,7 +354,6 @@ class optimal_traffic_scheduler:
         - v_in_req              : Requested incoming package stream for each buffer (n_in x 1 vector)
         - cv_in                 : Composition of incoming streams. (List with n_in elements with n_circuit_in[i] x 1 vector for list item i)
         - v_out_max             : Maximum for outgoing packet stream. Supplied by target servers (n_out x 1 vector)
-        - s_buffer_target       : buffer memory of target server(s) (n_out x 1 vector)
         - s_buffer_source       : Memory load of source server(s) (n_in x 1 vector)
 
         Populates the "predict" and optionally the "record" dictonaries of the class.
@@ -384,7 +380,6 @@ class optimal_traffic_scheduler:
         self.mpc_obj_p_num['tvp', :, 'v_in_req'] = v_in_req
         self.mpc_obj_p_num['tvp', :, 'cv_in'] = [vertcat(*cv_in_i) for cv_in_i in cv_in]
         self.mpc_obj_p_num['tvp', :, 'v_out_max'] = v_out_max
-        self.mpc_obj_p_num['tvp', :, 's_buffer_target'] = s_buffer_target
         self.mpc_obj_p_num['tvp', :, 's_buffer_source'] = s_buffer_source
 
         """ Assign parameters """
