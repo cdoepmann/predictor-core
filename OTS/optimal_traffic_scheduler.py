@@ -52,9 +52,9 @@ class optimal_traffic_scheduler:
         self.n_circuit_in = [len(c_i) for c_i in input_circuits]
         self.n_circuit_out = [len(c_i) for c_i in output_circuits]
 
+        # Note: Pb is defined "transposed", as casadi will raise an error for n_out=1, since it cant handle row vectors.
         self.Pb = self.Pb_fun(input_circuits, output_circuits)
         self.Pc = self.Pc_fun(input_circuits, output_circuits)
-        pdb.set_trace()
 
         assert len(self.n_circuit_in) == self.n_in
         assert len(self.n_circuit_out) == self.n_out
@@ -74,7 +74,6 @@ class optimal_traffic_scheduler:
 
     def problem_formulation(self):
         """ MPC states for stage k"""
-        pdb.set_trace()
 
         self.mpc_xk = struct_symSX([
             entry('s_buffer', shape=(self.n_out, 1)),
@@ -104,7 +103,8 @@ class optimal_traffic_scheduler:
         ])
         """ MPC parameters for stage k"""
         self.mpc_pk = struct_symSX([
-            entry('Pb', shape=(self.n_out, np.sum(self.n_circuit_in))),
+            # Note: Pb is defined "transposed", as casadi will raise an error for n_out=1, since it cant handle row vectors.
+            entry('Pb', shape=(np.sum(self.n_circuit_in), self.n_out)),
             entry('Pc', shape=(np.sum(self.n_circuit_in), np.sum(self.n_circuit_in))),
         ])
 
@@ -146,7 +146,8 @@ class optimal_traffic_scheduler:
 
         """ Circuit matching """
         # Assignment Matrix: Which element of each input is assigned to which output buffer:
-        Pb = self.mpc_pk['Pb']
+        # Note: Pb is defined "transposed", as casadi will raise an error for n_out=1, since it cant handle row vectors.
+        Pb = self.mpc_pk['Pb'].T
         # Assignment Matrix: Which input circuit is directed to which output circuit:
         Pc = self.mpc_pk['Pc']
 
@@ -263,7 +264,6 @@ class optimal_traffic_scheduler:
         # u = [u_0, u_1, ... , u_N]     (N elements)
         # For the optimization variable x_0 we introduce the simple equality constraint that it has
         # to be equal to the parameter x0 (mpc_obj_p)
-        pdb.set_trace()
         self.mpc_obj_p = mpc_obj_p = struct_symSX([
             entry('tvp', repeat=self.N_steps, struct=self.mpc_tvpk),
             entry('x0',  struct=self.mpc_xk),
@@ -346,7 +346,7 @@ class optimal_traffic_scheduler:
         # Create function to calculate buffer memory from parameter and optimization variable trajectories
         self.aux_fun = Function('aux_fun', [mpc_obj_x, mpc_obj_p], [mpc_obj_aux])
 
-    def solve(self, s_buffer_0, s_circuit_0, v_in_req, cv_in, v_out_max, s_buffer_source, *args, **kwargs):
+    def solve(self, s_buffer_0, s_circuit_0, v_in_req, cv_in, v_out_max, s_buffer_source, *args, debugging=True, **kwargs):
         """
         Solves the optimal control problem defined in optimal_traffic_scheduler.problem_formulation().
         Inputs:
@@ -367,9 +367,13 @@ class optimal_traffic_scheduler:
         """
 
         """ Check if inputs are valid """
-        assert np.isclose(np.sum(s_buffer_0), np.sum(s_circuit_0)), 'Inconsistent initial conditions: sum of s_buffer_0 is not equal sum of s_circuit_0'
-        assert np.allclose(self.Pb@self.Pc.T@s_circuit_0, s_buffer_0), 'Inconsistent initial conditions: s_circuit_0 and s_buffer_0 are not matching for the given setup.'
-        # TODO: Continue checks, add option to avoid checks.
+        if debugging:
+            assert np.isclose(np.sum(s_buffer_0), np.sum(s_circuit_0)), 'Inconsistent initial conditions: sum of s_buffer_0 is not equal sum of s_circuit_0'
+            assert np.allclose(self.Pb@self.Pc.T@s_circuit_0, s_buffer_0), 'Inconsistent initial conditions: s_circuit_0 and s_buffer_0 are not matching for the given setup.'
+            assert np.allclose(np.array([np.sum(np.concatenate(cv_in_i)) for cv_in_i in cv_in]), self.n_in), 'Inconsistent value for cv_in. There is at least one connection, where the sum of the composition is not close to 1.'
+            assert np.allclose([v_in_req_i.shape for v_in_req_i in v_in_req], (self.n_in, 1)), 'v_in must be a list of arrays where each element has shape (n_in,1)'
+            assert np.allclose([v_out_max_i.shape for v_out_max_i in v_out_max], (self.n_out, 1)), 'v_out_max must be a list of arrays where each element has shape (n_out,1)'
+            assert np.allclose([s_buffer_source_i.shape for s_buffer_source_i in s_buffer_source], (self.n_out, 1)), 's_buffer_source must be a list of arrays where each element has shape (n_in,1)'
 
         """ Set initial condition """
         self.mpc_obj_p_num['x0', 's_buffer'] = s_buffer_0
@@ -386,7 +390,8 @@ class optimal_traffic_scheduler:
         self.mpc_obj_p_num['tvp', :, 's_buffer_source'] = s_buffer_source
 
         """ Assign parameters """
-        self.mpc_obj_p_num['p', 'Pb'] = self.Pb
+        # Note: Pb is defined "transposed", as casadi will raise an error for n_out=1, since it cant handle row vectors.
+        self.mpc_obj_p_num['p', 'Pb'] = self.Pb.T
         self.mpc_obj_p_num['p', 'Pc'] = self.Pc
 
         """Solve optimization problem for given conditions:"""

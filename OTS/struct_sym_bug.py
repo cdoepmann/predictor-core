@@ -37,6 +37,7 @@ class MPC:
         self.mpc_pk = struct_symSX([
             entry('Pb', shape=(self.n_out, self.n_c)),
             entry('Pc', shape=(self.n_c, self.n_c)),
+            entry('dummy', shape=(1, 1)),
         ])
 
     def create_optim(self):
@@ -58,7 +59,7 @@ mpc = MPC(N_steps=20)
 message = 'n_in = {n_in}, n_out = {n_out}, n_c = {n_c}'
 cases = [
     # Those are examples that are working:
-    {'n_in': 2, 'n_out': 2, 'n_c': 2},
+    {'n_in': 2, 'n_out': 1, 'n_c': 2},
     {'n_in': 3, 'n_out': 4, 'n_c': 6},
     {'n_in': 7, 'n_out': 3, 'n_c': 12},
     # Those are examples that are not working:
