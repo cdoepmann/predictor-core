@@ -13,8 +13,8 @@ setup_dict['weights'] = {'control_delta': 1e-3, 'send': 1, 'store': 0, 'receive'
 ots = optimal_traffic_scheduler(setup_dict)
 
 # Lets assume the following:
-circuits_in = [[0], [1, 2, 3]]
-circuits_out = [[0, 2], [1], [3]]
+circuits_in = [[0], [1]]
+circuits_out = [[0], [1]]
 
 n_in = len(circuits_in)
 n_out = len(circuits_out)

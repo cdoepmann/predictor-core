@@ -54,6 +54,7 @@ class optimal_traffic_scheduler:
 
         self.Pb = self.Pb_fun(input_circuits, output_circuits)
         self.Pc = self.Pc_fun(input_circuits, output_circuits)
+        pdb.set_trace()
 
         assert len(self.n_circuit_in) == self.n_in
         assert len(self.n_circuit_out) == self.n_out
@@ -73,9 +74,11 @@ class optimal_traffic_scheduler:
 
     def problem_formulation(self):
         """ MPC states for stage k"""
+        pdb.set_trace()
+
         self.mpc_xk = struct_symSX([
             entry('s_buffer', shape=(self.n_out, 1)),
-            entry('s_circuit', shape=(np.sum(self.n_circuit_in), 1)),
+            entry('s_circuit', shape=(int(np.sum(self.n_circuit_in)), 1)),
         ])
         # States at next time-step. Same structure as mpc_xk. Will be assigned expressions later on.
         self.mpc_xk_next = struct_SX(self.mpc_xk)
@@ -260,11 +263,11 @@ class optimal_traffic_scheduler:
         # u = [u_0, u_1, ... , u_N]     (N elements)
         # For the optimization variable x_0 we introduce the simple equality constraint that it has
         # to be equal to the parameter x0 (mpc_obj_p)
-
+        pdb.set_trace()
         self.mpc_obj_p = mpc_obj_p = struct_symSX([
             entry('tvp', repeat=self.N_steps, struct=self.mpc_tvpk),
+            entry('x0',  struct=self.mpc_xk),
             entry('p',   struct=self.mpc_pk),
-            entry('x0',  struct=self.mpc_xk)
         ])
 
         # Dummy struct with symbolic variables
@@ -336,9 +339,9 @@ class optimal_traffic_scheduler:
         opts = {'ipopt.linear_solver': 'ma27', 'error_on_fail': True}
         self.optim = nlpsol('optim', 'ipopt', optim_dict, opts)
         if self.silent:
-            opts['ipopt.print_level'] = 0;
-            opts['ipopt.sb'] = "yes";
-            opts['print_time'] = 0;
+            opts['ipopt.print_level'] = 0
+            opts['ipopt.sb'] = "yes"
+            opts['print_time'] = 0
 
         # Create function to calculate buffer memory from parameter and optimization variable trajectories
         self.aux_fun = Function('aux_fun', [mpc_obj_x, mpc_obj_p], [mpc_obj_aux])
