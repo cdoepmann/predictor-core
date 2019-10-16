@@ -153,16 +153,16 @@ class optimal_traffic_scheduler:
 
         """ System dynamics"""
         # system dynamics, constraints and objective definition:
-        s_tilde_next = s_buffer + self.dt*Pb@vc_in
-        sc_tilde_next = s_circuit + self.dt*Pc@vc_in
+        eps = 1e-6
+        s_tilde_next = s_buffer + self.dt*Pb@(vc_in+eps)
+        sc_tilde_next = s_circuit + self.dt*Pc@(vc_in+eps)
 
         # Protected division. The denominator can only be zero, if the numerator is also zero. cv_out_i = 0 in that case
         # and would be NaN without using the eps value.
-        eps = 1e-6
         # cv_out = s_circuit/(mtimes(Pb.T, s_buffer)+eps)
         # cv_out = (sc_tilde_next)/(self.Pc@self.Pb.T@s_tilde_next+eps)
 
-        cv_out = [sc_i/(s_tilde_next[i]+eps) for i, sc_i in enumerate(vertsplit(sc_tilde_next, np.cumsum([0]+self.n_circuit_out)))]
+        cv_out = [sc_i/(s_tilde_next[i]) for i, sc_i in enumerate(vertsplit(sc_tilde_next, np.cumsum([0]+self.n_circuit_out)))]
         vc_out = vertcat(*[v_out_i*cv_out_i for cv_out_i, v_out_i in zip(cv_out, v_out_list)])
 
         # vc_out = (self.Pc@Pb.T@v_out)*cv_out
