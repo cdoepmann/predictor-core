@@ -373,7 +373,7 @@ class optimal_traffic_scheduler:
             assert np.allclose(np.array([np.sum(np.concatenate(cv_in_i)) for cv_in_i in cv_in]), self.n_in), 'Inconsistent value for cv_in. There is at least one connection, where the sum of the composition is not close to 1.'
             assert np.allclose([v_in_req_i.shape for v_in_req_i in v_in_req], (self.n_in, 1)), 'v_in must be a list of arrays where each element has shape (n_in,1)'
             assert np.allclose([v_out_max_i.shape for v_out_max_i in v_out_max], (self.n_out, 1)), 'v_out_max must be a list of arrays where each element has shape (n_out,1)'
-            assert np.allclose([s_buffer_source_i.shape for s_buffer_source_i in s_buffer_source], (self.n_out, 1)), 's_buffer_source must be a list of arrays where each element has shape (n_in,1)'
+            assert np.allclose([s_buffer_source_i.shape for s_buffer_source_i in s_buffer_source], (self.n_in, 1)), 's_buffer_source must be a list of arrays where each element has shape (n_in,1)'
 
         """ Set initial condition """
         self.mpc_obj_p_num['x0', 's_buffer'] = s_buffer_0
