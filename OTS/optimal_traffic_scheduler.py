@@ -176,9 +176,13 @@ class optimal_traffic_scheduler:
         """ Objective """
 
         # Objective function with fairness formulation:
-        # TODO: +1 umwandeln in tuning parameter?
-        stage_cost = sum1(-1/(10*s_buffer_source+1)*v_in_max)
-        stage_cost += sum1(-1/(10*s_buffer+1)*v_out)
+        s_buffer_source_split = (s_buffer_source+eps)/sum1(s_buffer_source+eps)
+        s_buffer_split = (s_buffer+eps)/sum1(s_buffer+eps)
+        stage_cost = sum1(-1/(s_buffer_source_split)*v_in_max)
+        stage_cost += sum1(-1/(s_buffer_split)*v_out)
+
+        # stage_cost = sum1(-1/(10*s_buffer_source+1)*v_in_max)
+        # stage_cost += sum1(-1/(10*s_buffer+1)*v_out)
 
         # Control delta regularization
         stage_cost += self.weights['control_delta']*sum1((self.mpc_uk-self.mpc_tvpk['u_prev'])**2)

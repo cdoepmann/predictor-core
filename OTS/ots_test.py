@@ -4,8 +4,8 @@ from optimal_traffic_scheduler import optimal_traffic_scheduler
 import pdb
 
 setup_dict = {}
-setup_dict['v_in_max_total'] = 15  # packets / s
-setup_dict['v_out_max_total'] = 15  # packets / s
+setup_dict['v_in_max_total'] = 1500  # packets / s
+setup_dict['v_out_max_total'] = 1500  # packets / s
 setup_dict['dt'] = 0.01  # s
 setup_dict['N_steps'] = 20
 setup_dict['weights'] = {'control_delta': 1e-3, 'send': 1, 'store': 0, 'receive': 1}
@@ -13,8 +13,8 @@ setup_dict['weights'] = {'control_delta': 1e-3, 'send': 1, 'store': 0, 'receive'
 ots = optimal_traffic_scheduler(setup_dict)
 
 # Lets assume the following:
-circuits_in = [[0], [2]]
-circuits_out = [[0, 2]]
+circuits_in = [[0, 1], [2]]
+circuits_out = [[0, 1, 2]]
 
 n_in = len(circuits_in)
 n_out = len(circuits_out)
@@ -26,17 +26,17 @@ n_circuit_out = [len(c_i) for c_i in circuits_out]
 ots.setup(n_in, n_out, circuits_in, circuits_out)
 
 # Create some dummy data:
-s_circuit_0 = np.array([50, 80]).reshape(-1, 1)
-s_buffer_0 = np.array([130]).reshape(-1, 1)
+s_circuit_0 = np.array([0, 0, 0]).reshape(-1, 1)
+s_buffer_0 = np.array([0]).reshape(-1, 1)
 
-v_in_req = [np.array([[15, 10]]).T]*ots.N_steps
+v_in_req = [np.array([[0, 0]]).T]*ots.N_steps
 
-cv_in = [[np.array([[1]]).T, np.array([[1]]).T]]*ots.N_steps
+cv_in = [[np.array([[0.5, 0.5]]).T, np.array([[1]]).T]]*ots.N_steps
 
 
 v_out_max = [np.array([[10]]).T]*ots.N_steps
 
-s_buffer_source = [np.array([[10]]).T]*ots.N_steps
+s_buffer_source = [np.array([[1000, 3000]]).T]*ots.N_steps
 
 
 # Call the solver:
@@ -63,7 +63,7 @@ ax[0, 0].get_shared_y_axes().join(ax[0, 0], ax[0, 1], ax[1, 0], ax[1, 1])
 for ax_i in ax.flatten():
     ax_i.grid(which='both', linestyle='--')
     ax_i.ticklabel_format(useOffset=False)
-    ax_i.set_ylim(bottom=-1, top=1.2*ax_i.get_ylim()[1])
+    # ax_i.set_ylim(bottom=-1, top=1.2*ax_i.get_ylim()[1])
 
 # ax[0, 0].set_ylim(bottom=-0.1, top=1.2*setup_dict['v_in_max_total'])
 # ax[0, 1].set_ylim(bottom=-0.1, top=1.2*setup_dict['v_in_max_total'])
