@@ -372,12 +372,25 @@ class optimal_traffic_scheduler:
 
         """ Check if inputs are valid """
         if debugging:
+            # Type checking:
+            assert type(s_buffer_0) == np.ndarray, 's_buffer_0 must be n_out x 1 vector (np.ndarray)'
+            assert type(s_circuit_0) == np.ndarray, 's_circuit_0 must be np.sum(n_circuit_out) x 1 vector (np.ndarray)'
+            assert type(v_in_req) == list and len(v_in_req) == self.N_steps, 'v_in_req must be a list with N_steps={N_steps} items.'.format(N_steps=self.N_steps)
+
+            assert type(cv_in) == list and len(cv_in) == self.N_steps, 'cv_in must be a list with N_steps={N_steps} items.'.format(N_steps=self.N_steps)
+            assert type(v_out_max) == list and len(v_out_max) == self.N_steps, 'v_out_max must be a list with N_steps={N_steps} items.'.format(N_steps=self.N_steps)
+            assert type(s_buffer_source) == list and len(s_buffer_source) == self.N_steps, 's_buffer_source must be a list with N_steps={N_steps} items.'.format(N_steps=self.N_steps)
+            # Nested type checking:
+            assert np.allclose([v_in_req_i.shape for v_in_req_i in v_in_req], (self.n_in, 1)), 'v_in must be a list of arrays where each element has shape ({n_in},1)'.format(n_in=self.n_in)
+            assert np.allclose([v_out_max_i.shape for v_out_max_i in v_out_max], (self.n_out, 1)), 'v_out_max must be a list of arrays where each element has shape ({n_out},1)'.format(n_in=self.n_out)
+            assert np.allclose([s_buffer_source_i.shape for s_buffer_source_i in s_buffer_source], (self.n_in, 1)), 's_buffer_source must be a list of arrays where each element has shape ({n_in},1)'.format(n_in=self.n_in)
+            assert np.all([type(cv_in_i) == list for cv_in_i in cv_in]) and np.allclose([(len(cv_in_i), np.concatenate(cv_in_i).shape[0]) for cv_in_i in cv_in], (self.n_in, np.sum(self.n_circuit_in))), 'Each list item of cv_in must be a list with {n_circuit} elements.'.format(n_circuit=np.sum(self.n_circuit_in))
+            # consistency checks:
+            assert s_buffer_0.shape == (self.n_out, 1), 's_buffer_0 must be {n_out} x 1 vector (np.ndarray): Is {isshape}'.format(n_out=self.n_out, isshape=s_buffer_0.shape)
+            assert s_circuit_0.shape == (np.sum(self.n_circuit_out), 1), 's_circuit_0 must be {n_circuit} x 1 vector (np.ndarray): Is {isshape}'.format(n_circuit=np.sum(self.n_circuit_out), isshape=s_circuit_0.shape)
             assert np.isclose(np.sum(s_buffer_0), np.sum(s_circuit_0)), 'Inconsistent initial conditions: sum of s_buffer_0 is not equal sum of s_circuit_0'
             assert np.allclose(self.Pb@self.Pc.T@s_circuit_0, s_buffer_0), 'Inconsistent initial conditions: s_circuit_0 and s_buffer_0 are not matching for the given setup.'
             assert np.allclose(np.array([np.sum(np.concatenate(cv_in_i)) for cv_in_i in cv_in]), self.n_in), 'Inconsistent value for cv_in. There is at least one connection, where the sum of the composition is not close to 1.'
-            assert np.allclose([v_in_req_i.shape for v_in_req_i in v_in_req], (self.n_in, 1)), 'v_in must be a list of arrays where each element has shape (n_in,1)'
-            assert np.allclose([v_out_max_i.shape for v_out_max_i in v_out_max], (self.n_out, 1)), 'v_out_max must be a list of arrays where each element has shape (n_out,1)'
-            assert np.allclose([s_buffer_source_i.shape for s_buffer_source_i in s_buffer_source], (self.n_in, 1)), 's_buffer_source must be a list of arrays where each element has shape (n_in,1)'
 
         """ Set initial condition """
         self.mpc_obj_p_num['x0', 's_buffer'] = s_buffer_0
