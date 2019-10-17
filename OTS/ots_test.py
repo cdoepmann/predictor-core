@@ -36,7 +36,7 @@ cv_in = [[np.array([[0.5, 0.5]]).T, np.array([[1]]).T]]*ots.N_steps
 
 v_out_max = [np.array([[10]]).T]*ots.N_steps
 
-s_buffer_source = [np.array([[1000, 3000]]).T]*ots.N_steps
+s_buffer_source = [np.array([[0, 0]]).T]*ots.N_steps
 
 
 # Call the solver:
