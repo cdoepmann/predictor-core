@@ -340,7 +340,7 @@ class optimal_traffic_scheduler:
 
         # TODO: Make optimization option available to user.
         # Create casadi optimization object:
-        opts = {'ipopt.linear_solver': 'ma27', 'error_on_fail': True}
+        opts = {'ipopt.linear_solver': 'ma27', 'error_on_fail': True, 'ipopt.max_iter': 1000}
         self.optim = nlpsol('optim', 'ipopt', optim_dict, opts)
         if self.silent:
             opts['ipopt.print_level'] = 0
@@ -412,14 +412,49 @@ class optimal_traffic_scheduler:
         self.mpc_obj_p_num['p', 'Pc'] = self.Pc
 
         """Solve optimization problem for given conditions:"""
-        optim_results = self.optim(
-            ubx=self.mpc_obj_x_ub,
-            lbx=self.mpc_obj_x_lb,
-            ubg=self.cons_ub,
-            lbg=self.cons_lb,
-            p=self.mpc_obj_p_num,
-            x0=self.mpc_obj_x_num
-        )
+        try:
+            """ Default method"""
+            optim_results = self.optim(
+                ubx=self.mpc_obj_x_ub,
+                lbx=self.mpc_obj_x_lb,
+                ubg=self.cons_ub,
+                lbg=self.cons_lb,
+                p=self.mpc_obj_p_num,
+                x0=self.mpc_obj_x_num
+            )
+            print('Executed default strategy.')
+        except:
+            """ Fallback strategy"""
+            # Optimize optimal trajectories for inputs and outputs seperatly.
+            # 1) v_out is forced to be zero.
+            self.mpc_obj_x_ub['u', :, 'v_out'] = 0
+            optim_results = self.optim(
+                ubx=self.mpc_obj_x_ub,
+                lbx=self.mpc_obj_x_lb,
+                ubg=self.cons_ub,
+                lbg=self.cons_lb,
+                p=self.mpc_obj_p_num,
+                x0=self.mpc_obj_x_num
+            )
+            # 1) Force v_in_discard and v_in_extra to maintain their solution and allow v_out to be free again.
+            self.mpc_obj_x_num = self.mpc_obj_x(optim_results['x'])
+            self.mpc_obj_x_ub['u', :, 'v_in_extra'] = self.mpc_obj_x_num['u', :, 'v_in_extra']
+            self.mpc_obj_x_ub['u', :, 'v_in_discard'] = self.mpc_obj_x_num['u', :, 'v_in_discard']
+            self.mpc_obj_x_lb['u', :, 'v_in_extra'] = self.mpc_obj_x_num['u', :, 'v_in_extra']
+            self.mpc_obj_x_lb['u', :, 'v_in_discard'] = self.mpc_obj_x_num['u', :, 'v_in_discard']
+            self.mpc_obj_x_ub['u', :, 'v_out'] = np.inf
+            self.mpc_obj_x_ub['u', :, 'v_out'] = np.inf
+            optim_results = self.optim(
+                ubx=self.mpc_obj_x_ub,
+                lbx=self.mpc_obj_x_lb,
+                ubg=self.cons_ub,
+                lbg=self.cons_lb,
+                p=self.mpc_obj_p_num,
+                x0=self.mpc_obj_x_num
+            )
+            print('Executed fallback strategy.')
+
+        pdb.set_trace()
         optim_stats = self.optim.stats()
 
         """ Assign solution to mpc_obj_x_num to allow easy accessibility: """
