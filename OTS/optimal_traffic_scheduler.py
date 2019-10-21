@@ -26,10 +26,12 @@ class optimal_traffic_scheduler:
         # Legacy check:
         assert 'v_max' not in setup_dict.keys(), 'Updated Framework where v_max paramter is not longer supported for ots init. Use v_in_max_total and v_out_max_total instead.'
         assert 's_max' not in setup_dict.keys(), 'Updated Framework where s_max parameter is not longer supported for ots init.'
+        assert 's_c_max_total' in setup_dict.keys(), 'Updated Framework: Please supply s_c_max_total value.'
 
         self.obj_name = name
         self.v_in_max_total = setup_dict['v_in_max_total']
         self.v_out_max_total = setup_dict['v_out_max_total']
+        self.s_c_max_total = setup_dict['s_c_max_total']
         self.dt = setup_dict['dt']
         self.N_steps = setup_dict['N_steps']
         self.weights = setup_dict['weights']
@@ -51,6 +53,7 @@ class optimal_traffic_scheduler:
 
         self.n_circuit_in = [len(c_i) for c_i in input_circuits]
         self.n_circuit_out = [len(c_i) for c_i in output_circuits]
+        self.n_c = np.sum(self.n_circuit_in)
 
         # Note: Pb is defined "transposed", as casadi will raise an error for n_out=1, since it cant handle row vectors.
         self.Pb = self.Pb_fun(input_circuits, output_circuits)
@@ -174,26 +177,28 @@ class optimal_traffic_scheduler:
         self.mpc_xk_next['s_circuit'] = s_circuit_next
 
         """ Objective """
-
+        stage_cost = 0
         # Objective function with fairness formulation:
         s_buffer_source_split = (s_buffer_source+eps)/sum1(s_buffer_source+eps)
         s_buffer_split = (s_buffer+eps)/sum1(s_buffer+eps)
-        stage_cost = sum1(-1/(s_buffer_source_split)*v_in_max)
+        stage_cost += sum1(-1/(s_buffer_source_split)*v_in_max)
         stage_cost += sum1(-1/(s_buffer_split)*v_out)
 
-        # stage_cost = sum1(-1/(10*s_buffer_source+1)*v_in_max)
-        # stage_cost += sum1(-1/(10*s_buffer+1)*v_out)
+        # stage_cost += sum1(-vc_in/(s_circuit+1e-3))
+        #stage_cost += sum1(s_buffer**2)
 
         # Control delta regularization
         stage_cost += self.weights['control_delta']*sum1((self.mpc_uk-self.mpc_tvpk['u_prev'])**2)
 
         # Terminal cost:
-        terminal_cost = sum1(-1/(s_buffer+1))
+        terminal_cost = sum1(-s_buffer)
 
         """ Constraints"""
         # All states with lower bound 0 and upper bound infinity
         self.mpc_xk_lb = self.mpc_xk(0)
         self.mpc_xk_ub = self.mpc_xk(np.inf)
+
+        self.mpc_xk_ub['s_buffer'] = self.s_c_max_total
 
         # All inputs with lower bound 0 and upper bound infinity
         self.mpc_uk_lb = self.mpc_uk(0)
@@ -206,7 +211,6 @@ class optimal_traffic_scheduler:
             {'lb': [-eps]*self.n_in,     'eq': v_in_discard*v_in_extra,            'ub': [eps]*self.n_in},  # packets can be discarded or added (not both). Should be zero but is better to be within a certain tolerance.
             {'lb': [-np.inf]*self.n_out, 'eq': v_out-v_out_max,                    'ub': [0]*self.n_out},  # outgoing packet stream cant be greater than what is allowed individually
             {'lb': [-np.inf],            'eq': sum1(v_out)-self.v_out_max_total,   'ub': [0]},             # outgoing packet stream cant be greater than what is allowed in total.
-            # {'lb': [-np.inf]*self.n_in,  'eq': v_in_max*self.dt-s_buffer_source,   'ub': [0]*self.n_in},   # Can't receive more than what is available in source_buffer.
         ]
 
         # Constraints for fairness (all vs. all comparison with individuall limits for each v_out):
@@ -215,7 +219,7 @@ class optimal_traffic_scheduler:
         for i in range(self.n_in):
             for j in range(self.n_in):
                 cons_list.append(
-                    {'lb': [-np.inf], 'eq': (s_buffer_source[i]-s_buffer_source[j])*(v_in_max[j]-v_in_max[i]), 'ub': [0]},
+                    {'lb': [-np.inf], 'eq': (self.s_c_max_total-s_buffer[i])*(self.s_c_max_total-s_buffer[j])*(s_buffer_source[i]-s_buffer_source[j])*(v_in_max[j]-v_in_max[i]), 'ub': [0]},
                 )
         # Output
         for i in range(self.n_out):
