@@ -65,6 +65,7 @@ class optimal_traffic_scheduler:
 
         self.problem_formulation()
         self.create_optim()
+        self.get_scaling()
 
     def initialize_record(self):
         assert 'predict' in self.__dict__.keys(), 'Cant initialize record before solve() was called and initial values for predict created.'
@@ -184,9 +185,6 @@ class optimal_traffic_scheduler:
         stage_cost += sum1(-1/(s_buffer_source_split)*v_in_max)
         stage_cost += sum1(-1/(s_buffer_split)*v_out)
 
-        # stage_cost += sum1(-vc_in/(s_circuit+1e-3))
-        #stage_cost += sum1(s_buffer**2)
-
         # Control delta regularization
         stage_cost += self.weights['control_delta']*sum1((self.mpc_uk-self.mpc_tvpk['u_prev'])**2)
 
@@ -211,6 +209,7 @@ class optimal_traffic_scheduler:
             {'lb': [-eps]*self.n_in,     'eq': v_in_discard*v_in_extra,            'ub': [eps]*self.n_in},  # packets can be discarded or added (not both). Should be zero but is better to be within a certain tolerance.
             {'lb': [-np.inf]*self.n_out, 'eq': v_out-v_out_max,                    'ub': [0]*self.n_out},  # outgoing packet stream cant be greater than what is allowed individually
             {'lb': [-np.inf],            'eq': sum1(v_out)-self.v_out_max_total,   'ub': [0]},             # outgoing packet stream cant be greater than what is allowed in total.
+            {'lb': [0]*self.n_c,         'eq': vertcat(*cv_out),                   'ub': [1]*self.n_c},
         ]
 
         # Constraints for fairness (all vs. all comparison with individuall limits for each v_out):
@@ -219,7 +218,7 @@ class optimal_traffic_scheduler:
         for i in range(self.n_in):
             for j in range(self.n_in):
                 cons_list.append(
-                    {'lb': [-np.inf], 'eq': (self.s_c_max_total-s_buffer[i])*(self.s_c_max_total-s_buffer[j])*(s_buffer_source[i]-s_buffer_source[j])*(v_in_max[j]-v_in_max[i]), 'ub': [0]},
+                    {'lb': [-np.inf], 'eq': (self.s_c_max_total-s_buffer[i])*(self.s_c_max_total-s_buffer[j])*(v_in_req[i]-v_in_req[j])*(v_in_max[j]-v_in_max[i]), 'ub': [0]},
                 )
         # Output
         for i in range(self.n_out):
@@ -239,6 +238,8 @@ class optimal_traffic_scheduler:
         # For debugging: Add intermediate variables to mpc_aux_expr and query them after solving the optimization problem.
         self.mpc_aux_expr = struct_SX([
             entry('v_in', expr=v_in),
+            entry('s_buffer_source_split', expr=s_buffer_source_split),
+            entry('s_buffer_split', expr=s_buffer_split),
             # entry('vc_in', expr=vc_in),
             # entry('s_tilde_next', expr=s_tilde_next),
             # entry('sc_tilde_next', expr=sc_tilde_next),
@@ -277,6 +278,11 @@ class optimal_traffic_scheduler:
             entry('x0',  struct=self.mpc_xk),
             entry('p',   struct=self.mpc_pk),
         ])
+
+        # Get scaling for mpc_obj_x and mpc_obj_p
+        self.get_scaling()
+        mpc_obj_x_unscaled = mpc_obj_x(mpc_obj_x*self.mpc_obj_x_scaling.cat)
+        mpc_obj_p_unscaled = mpc_obj_p(mpc_obj_p*self.mpc_obj_p_scaling.cat)
 
         # Dummy struct with symbolic variables
         aux_struct = struct_symSX([
@@ -344,7 +350,7 @@ class optimal_traffic_scheduler:
 
         # TODO: Make optimization option available to user.
         # Create casadi optimization object:
-        opts = {'ipopt.linear_solver': 'ma27', 'error_on_fail': True}
+        opts = {'ipopt.linear_solver': 'ma27', 'error_on_fail': False}
         self.optim = nlpsol('optim', 'ipopt', optim_dict, opts)
         if self.silent:
             opts['ipopt.print_level'] = 0
@@ -353,6 +359,26 @@ class optimal_traffic_scheduler:
 
         # Create function to calculate buffer memory from parameter and optimization variable trajectories
         self.aux_fun = Function('aux_fun', [mpc_obj_x, mpc_obj_p], [mpc_obj_aux])
+
+    def get_scaling(self):
+        """ Scaling for optimization variables:"""
+        self.mpc_obj_x_scaling = self.mpc_obj_x(1)
+
+        self.mpc_obj_x_scaling['x', :, 's_buffer'] = self.s_c_max_total
+        self.mpc_obj_x_scaling['x', :, 's_circuit'] = self.s_c_max_total
+
+        self.mpc_obj_x_scaling['u', :, 'v_in_discard'] = self.v_in_max_total
+        self.mpc_obj_x_scaling['u', :, 'v_in_extra'] = self.v_in_max_total
+        self.mpc_obj_x_scaling['u', :, 'v_out'] = self.v_out_max_total
+
+        """ Scaling for parameters:"""
+        self.mpc_obj_p_scaling = self.mpc_obj_p(1)
+
+        self.mpc_obj_p_scaling['tvp', :, 'u_prev'] = self.mpc_obj_x_scaling['u', :]
+        self.mpc_obj_p_scaling['tvp', :, 'v_in_req'] = self.v_in_max_total
+        self.mpc_obj_p_scaling['tvp', :, 'v_out_max'] = self.v_out_max_total
+
+        self.mpc_obj_p_scaling['x0'] = self.mpc_obj_x_scaling['x', 0]
 
     def solve(self, s_buffer_0, s_circuit_0, v_in_req, cv_in, v_out_max, s_buffer_source, *args, debugging=True, **kwargs):
         """
@@ -426,6 +452,9 @@ class optimal_traffic_scheduler:
         )
         optim_stats = self.optim.stats()
 
+        if not optim_stats['success']:
+            raise Exception(optim_stats['success'])
+
         """ Assign solution to mpc_obj_x_num to allow easy accessibility: """
         self.mpc_obj_x_num = self.mpc_obj_x(optim_results['x'])
 
@@ -466,10 +495,6 @@ class optimal_traffic_scheduler:
             if not 'record' in self.__dict__.keys():
                 self.initialize_record()
             self.record_fun()
-
-        if not optim_stats['success']:
-            raise Exception(optim_stats['success'])
-        return optim_stats['success']
 
     def record_fun(self):
         self.record['time'].append(np.copy(self.time))
