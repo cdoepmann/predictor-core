@@ -29,9 +29,11 @@ class optimal_traffic_scheduler:
         assert 's_c_max_total' in setup_dict.keys(), 'Updated Framework: Please supply s_c_max_total value.'
 
         self.obj_name = name
-        self.v_in_max_total = setup_dict['v_in_max_total']
-        self.v_out_max_total = setup_dict['v_out_max_total']
-        self.s_c_max_total = setup_dict['s_c_max_total']
+        self.scaling = setup_dict['scaling']
+        self.v_in_max_total = setup_dict['v_in_max_total']/self.scaling
+        self.v_out_max_total = setup_dict['v_out_max_total']/self.scaling
+        self.s_c_max_total = setup_dict['s_c_max_total']/self.scaling
+
         self.dt = setup_dict['dt']
         self.N_steps = setup_dict['N_steps']
         self.weights = setup_dict['weights']
@@ -202,18 +204,17 @@ class optimal_traffic_scheduler:
         self.mpc_uk_ub = self.mpc_uk(np.inf)
 
         # Further (non-linear constraints on states and inputs)
-        # Note lb, ub and scaling must be lists to be concatenated lateron
+        # Note lb and ub must be lists to be concatenated lateron
         cons_list = [
-            {'lb': [0]*self.n_in,        'eq': v_in,                    'ub': [np.inf]*self.n_in,         'scaling': [1]*self.n_in},   # v_in cant be negative (Note: v_in is not an input)
-            {'lb': [0],                  'eq': sum1(v_in_max),          'ub': [self.v_in_max_total],      'scaling': [self.v_in_max_total]},             # sum of all incoming traffic can't exceed v_in_max_total
-            {'lb': [-eps]*self.n_in,     'eq': v_in_discard*v_in_extra, 'ub': [eps]*self.n_in,            'scaling': [1]*self.n_in},  # packets can be discarded or added (not both). Should be zero but is better to be within a certain tolerance.
-            {'lb': [-np.inf]*self.n_out, 'eq': v_out-v_out_max,         'ub': [0]*self.n_out,             'scaling': [1]*self.n_out},  # outgoing packet stream cant be greater than what is allowed individually
-            {'lb': [0],                  'eq': sum1(v_out),             'ub': [self.v_out_max_total],     'scaling': [self.v_out_max_total]},             # outgoing packet stream cant be greater than what is allowed in total.
-            {'lb': [0]*self.n_c,         'eq': vertcat(*cv_out),        'ub': [1]*self.n_c,               'scaling': [1]*self.n_c},
+            {'lb': [0]*self.n_in,        'eq': v_in,                    'ub': [np.inf]*self.n_in},   # v_in cant be negative (Note: v_in is not an input)
+            {'lb': [0],                  'eq': sum1(v_in_max),          'ub': [self.v_in_max_total]},             # sum of all incoming traffic can't exceed v_in_max_total
+            {'lb': [-eps]*self.n_in,     'eq': v_in_discard*v_in_extra, 'ub': [eps]*self.n_in},  # packets can be discarded or added (not both). Should be zero but is better to be within a certain tolerance.
+            {'lb': [-np.inf]*self.n_out, 'eq': v_out-v_out_max,         'ub': [0]*self.n_out},  # outgoing packet stream cant be greater than what is allowed individually
+            {'lb': [0],                  'eq': sum1(v_out),             'ub': [self.v_out_max_total]},             # outgoing packet stream cant be greater than what is allowed in total.
+            {'lb': [0]*self.n_c,         'eq': vertcat(*cv_out),        'ub': [1]*self.n_c},
         ]
         assert np.all([type(cons_list_i['lb']) == list for cons_list_i in cons_list])
         assert np.all([type(cons_list_i['ub']) == list for cons_list_i in cons_list])
-        assert np.all([type(cons_list_i['scaling']) == list for cons_list_i in cons_list])
 
         # Constraints for fairness (all vs. all comparison with individuall limits for each v_out):
         # For insights on why this works see the IPYNB in ./fairness/fairness_scenario.ipynb
@@ -221,19 +222,18 @@ class optimal_traffic_scheduler:
         for i in range(self.n_in):
             for j in range(self.n_in):
                 cons_list.append(
-                    {'lb': [-np.inf], 'eq': (self.s_c_max_total-s_buffer[i])*(self.s_c_max_total-s_buffer[j])*(v_in_req[i]-v_in_req[j])*(v_in_max[j]-v_in_max[i]), 'ub': [0], 'scaling': [1]},
+                    {'lb': [-np.inf], 'eq': (self.s_c_max_total-s_buffer[i])*(self.s_c_max_total-s_buffer[j])*(v_in_req[i]-v_in_req[j])*(v_in_max[j]-v_in_max[i]), 'ub': [0]},
                 )
         # Output
         for i in range(self.n_out):
             for j in range(self.n_out):
                 cons_list.append(
-                    {'lb': [-np.inf], 'eq': (v_out_max[i]-v_out[i])*(v_out_max[j]-v_out[j])*(s_buffer[i]-s_buffer[j])*(v_out[j]-v_out[i]), 'ub': [0], 'scaling': [1]},
+                    {'lb': [-np.inf], 'eq': (v_out_max[i]-v_out[i])*(v_out_max[j]-v_out[j])*(s_buffer[i]-s_buffer[j])*(v_out[j]-v_out[i]), 'ub': [0]},
                 )
 
         cons = vertcat(*[con_i['eq'] for con_i in cons_list])
         cons_lb = np.concatenate([con_i['lb'] for con_i in cons_list])
         cons_ub = np.concatenate([con_i['ub'] for con_i in cons_list])
-        cons_scaling = np.concatenate([con_i['scaling'] for con_i in cons_list])
 
         """ Summarize auxiliary / intermediate variables in mpc_aux with their respective expression """
         bandwidth_load_in = sum1(v_in)/self.v_in_max_total
@@ -258,7 +258,6 @@ class optimal_traffic_scheduler:
         mpc_problem['cons'] = Function('cons', [self.mpc_xk, self.mpc_uk, self.mpc_tvpk, self.mpc_pk], [cons])
         mpc_problem['cons_lb'] = cons_lb
         mpc_problem['cons_ub'] = cons_ub
-        mpc_problem['cons_scaling'] = cons_scaling
         mpc_problem['stage_cost'] = Function('stage_cost', [self.mpc_xk, self.mpc_uk, self.mpc_tvpk, self.mpc_pk], [stage_cost])
         mpc_problem['terminal_cost'] = Function('terminal_cost', [self.mpc_xk], [terminal_cost])
         mpc_problem['model'] = Function('model', [self.mpc_xk, self.mpc_uk, self.mpc_tvpk, self.mpc_pk], [self.mpc_xk_next])
@@ -284,11 +283,6 @@ class optimal_traffic_scheduler:
             entry('p',   struct=self.mpc_pk),
         ])
 
-        # Get scaling for mpc_obj_x and mpc_obj_p
-        self.get_scaling()
-        mpc_obj_x_unscaled = mpc_obj_x(mpc_obj_x*self.mpc_obj_x_scaling.cat)
-        mpc_obj_p_unscaled = mpc_obj_p(mpc_obj_p*self.mpc_obj_p_scaling.cat)
-
         # Dummy struct with symbolic variables
         aux_struct = struct_symSX([
             entry('aux', repeat=self.N_steps, struct=self.mpc_aux_expr)
@@ -305,32 +299,31 @@ class optimal_traffic_scheduler:
         cons_lb = []
 
         # Equality constraint for first state:
-        cons.append(mpc_obj_x_unscaled['x', 0]-mpc_obj_p_unscaled['x0'])
+        cons.append(mpc_obj_x['x', 0]-mpc_obj_p['x0'])
         cons_lb.append(np.zeros(self.mpc_xk.shape))
         cons_ub.append(np.zeros(self.mpc_xk.shape))
 
         # Recursively evaluate system equation and add stage cost and stage constraints:
         for k in range(self.N_steps):
-            mpc_xk_next = self.mpc_problem['model'](mpc_obj_x_unscaled['x', k], mpc_obj_x_unscaled['u', k], mpc_obj_p_unscaled['tvp', k], mpc_obj_p_unscaled['p'])
-            mpc_xk_next_scaled = mpc_xk_next/self.mpc_obj_x_scaling['x', 0]
+            mpc_xk_next = self.mpc_problem['model'](mpc_obj_x['x', k], mpc_obj_x['u', k], mpc_obj_p['tvp', k], mpc_obj_p['p'])
             # State constraint:
-            cons.append(mpc_xk_next_scaled-mpc_obj_x['x', k+1])
+            cons.append(mpc_xk_next-mpc_obj_x['x', k+1])
             cons_lb.append(np.zeros(self.mpc_xk.shape))
             cons_ub.append(np.zeros(self.mpc_xk.shape))
 
             # Add the "stage cost" to the objective
-            obj += self.mpc_problem['stage_cost'](mpc_obj_x_unscaled['x', k], mpc_obj_x_unscaled['u', k], mpc_obj_p_unscaled['tvp', k], mpc_obj_p_unscaled['p'])
+            obj += self.mpc_problem['stage_cost'](mpc_obj_x['x', k], mpc_obj_x['u', k], mpc_obj_p['tvp', k], mpc_obj_p['p'])
 
             # Constraints for the current step
             cons.append(self.mpc_problem['cons'](mpc_obj_x['x', k], mpc_obj_x['u', k], mpc_obj_p['tvp', k], mpc_obj_p['p']))
-            cons_lb.append(self.mpc_problem['cons_lb']/self.mpc_problem['cons_scaling'])
-            cons_ub.append(self.mpc_problem['cons_ub']/self.mpc_problem['cons_scaling'])
+            cons_lb.append(self.mpc_problem['cons_lb'])
+            cons_ub.append(self.mpc_problem['cons_ub'])
 
             # Calculate auxiliary values:
-            mpc_obj_aux['aux', k] = self.mpc_problem['aux'](mpc_obj_x_unscaled['x', k], mpc_obj_x_unscaled['u', k], mpc_obj_p_unscaled['tvp', k], mpc_obj_p_unscaled['p'])
+            mpc_obj_aux['aux', k] = self.mpc_problem['aux'](mpc_obj_x['x', k], mpc_obj_x['u', k], mpc_obj_p['tvp', k], mpc_obj_p['p'])
 
         # Terminal cost:
-        obj += self.mpc_problem['terminal_cost'](mpc_obj_x_unscaled['x', -1])
+        obj += self.mpc_problem['terminal_cost'](mpc_obj_x['x', -1])
 
         # Upper and lower bounds on objective x:
         self.mpc_obj_x_lb = self.mpc_obj_x(0)
@@ -342,10 +335,6 @@ class optimal_traffic_scheduler:
         self.mpc_obj_x_lb['u', :] = self.mpc_uk_lb
         self.mpc_obj_x_ub['u', :] = self.mpc_uk_ub
 
-        # Scale bounds:
-        self.mpc_obj_x_lb = self.mpc_obj_x(self.mpc_obj_x_lb/self.mpc_obj_x_scaling.cat)
-        self.mpc_obj_x_ub = self.mpc_obj_x(self.mpc_obj_x_ub/self.mpc_obj_x_scaling.cat)
-
         optim_dict = {'x': mpc_obj_x,       # Optimization variable
                       'f': obj,             # objective
                       'g': vertcat(*cons),  # constraints
@@ -355,9 +344,7 @@ class optimal_traffic_scheduler:
 
         # Use the structured data obj_x and obj_p and create identically organized copies with numerical values (initialized to zero)
         self.mpc_obj_x_num = self.mpc_obj_x(0)
-        self.mpc_obj_x_num_unscaled = self.mpc_obj_x(0)
         self.mpc_obj_p_num = self.mpc_obj_p(0)
-        self.mpc_obj_p_num_unscaled = self.mpc_obj_p(0)
         self.mpc_obj_aux_num = self.mpc_obj_aux(0)
 
         # TODO: Make optimization option available to user.
@@ -371,26 +358,6 @@ class optimal_traffic_scheduler:
 
         # Create function to calculate buffer memory from parameter and optimization variable trajectories
         self.aux_fun = Function('aux_fun', [mpc_obj_x, mpc_obj_p], [mpc_obj_aux])
-
-    def get_scaling(self):
-        """ Scaling for optimization variables:"""
-        self.mpc_obj_x_scaling = self.mpc_obj_x(1)
-
-        self.mpc_obj_x_scaling['x', :, 's_buffer'] = self.s_c_max_total
-        self.mpc_obj_x_scaling['x', :, 's_circuit'] = self.s_c_max_total
-
-        self.mpc_obj_x_scaling['u', :, 'v_in_discard'] = self.v_in_max_total
-        self.mpc_obj_x_scaling['u', :, 'v_in_extra'] = self.v_in_max_total
-        self.mpc_obj_x_scaling['u', :, 'v_out'] = self.v_out_max_total
-
-        """ Scaling for parameters:"""
-        self.mpc_obj_p_scaling = self.mpc_obj_p(1)
-
-        self.mpc_obj_p_scaling['tvp', :, 'u_prev'] = self.mpc_obj_x_scaling['u', :]
-        self.mpc_obj_p_scaling['tvp', :, 'v_in_req'] = self.v_in_max_total
-        self.mpc_obj_p_scaling['tvp', :, 'v_out_max'] = self.v_out_max_total
-
-        self.mpc_obj_p_scaling['x0'] = self.mpc_obj_x_scaling['x', 0]
 
     def solve(self, s_buffer_0, s_circuit_0, v_in_req, cv_in, v_out_max, s_buffer_source, *args, debugging=True, **kwargs):
         """
@@ -435,26 +402,23 @@ class optimal_traffic_scheduler:
             assert np.allclose(np.array([np.sum(np.concatenate(cv_in_i)) for cv_in_i in cv_in]), self.n_in), 'Inconsistent value for cv_in. There is at least one connection, where the sum of the composition is not close to 1.'
 
         """ Set initial condition """
-        self.mpc_obj_p_num_unscaled['x0', 's_buffer'] = s_buffer_0
-        self.mpc_obj_p_num_unscaled['x0', 's_circuit'] = s_circuit_0
+        self.mpc_obj_p_num['x0', 's_buffer'] = s_buffer_0/self.scaling
+        self.mpc_obj_p_num['x0', 's_circuit'] = s_circuit_0/self.scaling
 
         """ Get previous inputs and assign to tvp u_prev after shifting"""
-        self.mpc_obj_p_num_unscaled['tvp', :-1, 'u_prev'] = self.mpc_obj_x_num_unscaled['u', 1:]
-        self.mpc_obj_p_num_unscaled['tvp', -1, 'u_prev'] = self.mpc_obj_x_num_unscaled['u', -1]
+        self.mpc_obj_p_num['tvp', :-1, 'u_prev'] = self.mpc_obj_x_num['u', 1:]
+        self.mpc_obj_p_num['tvp', -1, 'u_prev'] = self.mpc_obj_x_num['u', -1]
 
         """ Assign further parameters to tvp"""
-        self.mpc_obj_p_num_unscaled['tvp', :, 'v_in_req'] = v_in_req
-        self.mpc_obj_p_num_unscaled['tvp', :, 'cv_in'] = [vertcat(*cv_in_i) for cv_in_i in cv_in]
-        self.mpc_obj_p_num_unscaled['tvp', :, 'v_out_max'] = v_out_max
-        self.mpc_obj_p_num_unscaled['tvp', :, 's_buffer_source'] = s_buffer_source
+        self.mpc_obj_p_num['tvp', :, 'v_in_req'] = [i/self.scaling for i in v_in_req]
+        self.mpc_obj_p_num['tvp', :, 'cv_in'] = [vertcat(*cv_in_i) for cv_in_i in cv_in]
+        self.mpc_obj_p_num['tvp', :, 'v_out_max'] = [i/self.scaling for i in v_out_max]
+        self.mpc_obj_p_num['tvp', :, 's_buffer_source'] = [i/self.scaling for i in s_buffer_source]
 
         """ Assign parameters """
         # Note: Pb is defined "transposed", as casadi will raise an error for n_out=1, since it cant handle row vectors.
-        self.mpc_obj_p_num_unscaled['p', 'Pb'] = self.Pb.T
-        self.mpc_obj_p_num_unscaled['p', 'Pc'] = self.Pc
-
-        """ Scale Parameters """
-        self.mpc_obj_p_num = self.mpc_obj_p_num_unscaled/self.mpc_obj_p_scaling.cat
+        self.mpc_obj_p_num['p', 'Pb'] = self.Pb.T
+        self.mpc_obj_p_num['p', 'Pc'] = self.Pc
 
         """Solve optimization problem for given conditions:"""
         optim_results = self.optim(
@@ -469,21 +433,20 @@ class optimal_traffic_scheduler:
 
         """ Assign solution to mpc_obj_x_num to allow easy accessibility: """
         self.mpc_obj_x_num = self.mpc_obj_x(optim_results['x'])
-        self.mpc_obj_x_num_unscaled = self.mpc_obj_x(self.mpc_obj_x_num*self.mpc_obj_x_scaling.cat)
 
         """ Calculate aux values: """
         self.mpc_obj_aux_num = self.mpc_obj_aux(self.aux_fun(self.mpc_obj_x_num, self.mpc_obj_p_num))
 
         """ Retrieve relevant trajectories """
 
-        v_out = self.mpc_obj_x_num_unscaled['u', :, 'v_out']
+        v_out = [i*self.scaling for i in self.mpc_obj_x_num['u', :, 'v_out']]
         cv_out = [np.split(self.mpc_obj_aux_num['aux', k, 'cv_out'], np.cumsum(self.n_circuit_out[:-1])) for k in range(self.N_steps)]
 
-        v_in = self.mpc_obj_aux_num['aux', :, 'v_in']
-        v_in_max = self.mpc_obj_aux_num['aux', :, 'v_in_max']
+        v_in = [i*self.scaling for i in self.mpc_obj_aux_num['aux', :, 'v_in']]
+        v_in_max = [i*self.scaling for i in self.mpc_obj_aux_num['aux', :, 'v_in_max']]
 
-        s_buffer = self.mpc_obj_x_num_unscaled['x', :, 's_buffer']
-        s_circuit = self.mpc_obj_x_num_unscaled['x', :, 's_circuit']
+        s_buffer = [i*self.scaling for i in self.mpc_obj_x_num['x', :, 's_buffer']]
+        s_circuit = [i*self.scaling for i in self.mpc_obj_x_num['x', :, 's_circuit']]
 
         bandwidth_load_in = self.mpc_obj_aux_num['aux', :, 'bandwidth_load_in']
         bandwidth_load_out = self.mpc_obj_aux_num['aux', :, 'bandwidth_load_out']

@@ -7,6 +7,7 @@ setup_dict = {}
 setup_dict['v_in_max_total'] = 300  # packets / s
 setup_dict['v_out_max_total'] = 300  # packets / s
 setup_dict['s_c_max_total'] = 200  # packets
+setup_dict['scaling'] = 300
 setup_dict['dt'] = 0.04  # s
 setup_dict['N_steps'] = 20
 setup_dict['weights'] = {'control_delta': 1e4, 'send': 0, 'store': 0, 'receive': 0}
