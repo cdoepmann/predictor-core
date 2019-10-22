@@ -208,7 +208,7 @@ class optimal_traffic_scheduler:
         cons_list = [
             {'lb': [0]*self.n_in,        'eq': v_in,                    'ub': [np.inf]*self.n_in},   # v_in cant be negative (Note: v_in is not an input)
             {'lb': [0],                  'eq': sum1(v_in_max),          'ub': [self.v_in_max_total]},             # sum of all incoming traffic can't exceed v_in_max_total
-            {'lb': [-eps]*self.n_in,     'eq': v_in_discard*v_in_extra, 'ub': [eps]*self.n_in},  # packets can be discarded or added (not both). Should be zero but is better to be within a certain tolerance.
+            {'lb': [0]*self.n_in,     'eq': v_in_discard*v_in_extra, 'ub': [0]*self.n_in},  # packets can be discarded or added (not both). Should be zero but is better to be within a certain tolerance.
             {'lb': [-np.inf]*self.n_out, 'eq': v_out-v_out_max,         'ub': [0]*self.n_out},  # outgoing packet stream cant be greater than what is allowed individually
             {'lb': [0],                  'eq': sum1(v_out),             'ub': [self.v_out_max_total]},             # outgoing packet stream cant be greater than what is allowed in total.
             {'lb': [0]*self.n_c,         'eq': vertcat(*cv_out),        'ub': [1]*self.n_c},
