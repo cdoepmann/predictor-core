@@ -4,12 +4,12 @@ from optimal_traffic_scheduler import optimal_traffic_scheduler
 import pdb
 
 setup_dict = {}
-setup_dict['v_in_max_total'] = 0.3  # packets / s
-setup_dict['v_out_max_total'] = 0.2  # packets / s
-setup_dict['s_c_max_total'] = 0.02  # packets
+setup_dict['v_in_max_total'] = 300  # packets / s
+setup_dict['v_out_max_total'] = 300  # packets / s
+setup_dict['s_c_max_total'] = 200  # packets
 setup_dict['dt'] = 0.04  # s
 setup_dict['N_steps'] = 20
-setup_dict['weights'] = {'control_delta': 1e0, 'send': 0, 'store': 0, 'receive': 0}
+setup_dict['weights'] = {'control_delta': 1e4, 'send': 0, 'store': 0, 'receive': 0}
 
 ots = optimal_traffic_scheduler(setup_dict)
 
@@ -27,15 +27,15 @@ n_circuit_out = [len(c_i) for c_i in circuits_out]
 ots.setup(n_in, n_out, circuits_in, circuits_out)
 
 # Create some dummy data:
-s_circuit_0 = np.array([0.0, 0.0, 0.0]).reshape(-1, 1)
-s_buffer_0 = np.array([0.0, 0.0, 0.0]).reshape(-1, 1)
+s_circuit_0 = np.array([100.0, 100.0, 100.0]).reshape(-1, 1)
+s_buffer_0 = np.array([100.0, 100.0, 100.0]).reshape(-1, 1)
 
-v_in_req = [np.array([[0., 0., 0.]]).T]*ots.N_steps
+v_in_req = [np.array([[200., 100., 100.]]).T]*ots.N_steps
 
 cv_in = [[np.array([[1.]]).T, np.array([[1]]).T, np.array([[1.]]).T]]*ots.N_steps
 
 
-v_out_max = [np.array([[0., 0., 0.]]).T]*ots.N_steps
+v_out_max = [np.array([[50., 100., 0.]]).T]*ots.N_steps
 
 s_buffer_source = [np.array([[0.0, 0.0, 0.0]]).T]*ots.N_steps
 
