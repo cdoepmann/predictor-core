@@ -28,15 +28,15 @@ n_circuit_out = [len(c_i) for c_i in circuits_out]
 ots.setup(n_in, n_out, circuits_in, circuits_out)
 
 # Create some dummy data:
-s_circuit_0 = np.array([0.0, 0.0, 0.0]).reshape(-1, 1)
-s_buffer_0 = np.array([0.0, 0.0, 0.0]).reshape(-1, 1)
+s_circuit_0 = np.array([50.0, 50.0, 50.0]).reshape(-1, 1)
+s_buffer_0 = np.array([50.0, 50.0, 50.0]).reshape(-1, 1)
 
-v_in_req = [np.array([[0., 0., 0.]]).T]*ots.N_steps
+v_in_req = [np.array([[10., 20., 30.]]).T]*ots.N_steps
 
 cv_in = [[np.array([[1.]]).T, np.array([[1]]).T, np.array([[1.]]).T]]*ots.N_steps
 
 
-v_out_max = [np.array([[0., 0., 0.]]).T]*ots.N_steps
+v_out_max = [np.array([[20., 20., 20.]]).T]*ots.N_steps
 
 s_buffer_source = [np.array([[0.0, 0.0, 0.0]]).T]*ots.N_steps
 
@@ -56,7 +56,12 @@ ax[0, 2].step(range(len(ots.predict['s_buffer'])), np.sum(np.concatenate(ots.pre
 lines = ax[1, 0].step(range(len(ots.predict['v_out'])), np.concatenate(ots.predict['v_out'], axis=1).T, linewidth=4, alpha=0.5)
 ax[1, 0].legend(lines, np.arange(n_out), title='Connection #')
 lines = ax[1, 1].step(range(len(ots.predict['v_in'])), np.concatenate(ots.predict['v_in'], axis=1).T, linewidth=4, alpha=0.5)
-ax[1, 1].legend(lines, np.arange(n_in), title='Connection #')
+plt.sca(ax[1, 1])
+ax[1, 1].add_artist(plt.legend(lines, np.arange(n_in), title='v_in con #', loc=2))
+ax[1, 1].set_prop_cycle(None)
+lines = ax[1, 1].step(range(len(ots.predict['v_in_max'])), np.concatenate(ots.predict['v_in_max'], axis=1).T, linewidth=2, alpha=0.5, linestyle='--')
+plt.sca(ax[1, 1])
+ax[1, 1].add_artist(plt.legend(lines, np.arange(n_in), title='v_in_max con #', loc=1))
 lines = ax[1, 2].step(range(len(ots.predict['s_buffer'])), np.concatenate(ots.predict['s_buffer'], axis=1).T, linewidth=4, alpha=0.5)
 ax[1, 2].legend(lines, np.arange(n_out), title='Connection #')
 

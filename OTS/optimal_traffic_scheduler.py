@@ -177,9 +177,9 @@ class optimal_traffic_scheduler:
         """ Objective """
         stage_cost = 0
         # Objective function with fairness formulation:
-        s_buffer_source_split = (s_buffer_source+eps)/sum1(s_buffer_source+eps)
+        v_in_req_split = (v_in_req+eps)/sum1(v_in_req+eps)
         s_buffer_split = (s_buffer+eps)/sum1(s_buffer+eps)
-        stage_cost += sum1(-1/(s_buffer_source_split)*v_in_max)
+        stage_cost += sum1(-1/(v_in_req_split)*v_in_max)
         stage_cost += sum1(-1/(s_buffer_split)*v_out)
 
         # Control delta regularization
@@ -202,10 +202,10 @@ class optimal_traffic_scheduler:
         # Further (non-linear constraints on states and inputs)
         # Note lb and ub must be lists to be concatenated lateron
         cons_list = [
-            {'lb': [0]*self.n_in,        'eq': v_in,                    'ub': [np.inf]*self.n_in},   # v_in cant be negative (Note: v_in is not an input)
+            {'lb': [0]*self.n_in,        'eq': v_in,                    'ub': [self.v_in_max_total]*self.n_in},   # v_in cant be negative (Note: v_in is not an input)
             {'lb': [0],                  'eq': sum1(v_in_max),          'ub': [self.v_in_max_total]},             # sum of all incoming traffic can't exceed v_in_max_total
-            {'lb': [0]*self.n_in,     'eq': v_in_discard*v_in_extra, 'ub': [0]*self.n_in},  # packets can be discarded or added (not both). Should be zero but is better to be within a certain tolerance.
-            {'lb': [-np.inf]*self.n_out, 'eq': v_out-v_out_max,         'ub': [0]*self.n_out},  # outgoing packet stream cant be greater than what is allowed individually
+            {'lb': [0]*self.n_in,        'eq': v_in_discard*v_in_extra, 'ub': [0]*self.n_in},  # packets can be discarded or added (not both). Should be zero but is better to be within a certain tolerance.
+            {'lb': [0]*self.n_out,       'eq': v_out_max-v_out,         'ub': [self.v_out_max_total]*self.n_out},  # outgoing packet stream cant be greater than what is allowed individually
             {'lb': [0],                  'eq': sum1(v_out),             'ub': [self.v_out_max_total]},             # outgoing packet stream cant be greater than what is allowed in total.
             {'lb': [0]*self.n_c,         'eq': vertcat(*cv_out),        'ub': [1]*self.n_c},
         ]
@@ -238,8 +238,8 @@ class optimal_traffic_scheduler:
         # For debugging: Add intermediate variables to mpc_aux_expr and query them after solving the optimization problem.
         self.mpc_aux_expr = struct_SX([
             entry('v_in', expr=v_in),
-            entry('s_buffer_source_split', expr=s_buffer_source_split),
             entry('s_buffer_split', expr=s_buffer_split),
+            entry('v_in_constraint', expr=v_in_extra*v_in_discard),
             # entry('vc_in', expr=vc_in),
             # entry('s_tilde_next', expr=s_tilde_next),
             # entry('sc_tilde_next', expr=sc_tilde_next),
@@ -345,7 +345,7 @@ class optimal_traffic_scheduler:
 
         # TODO: Make optimization option available to user.
         # Create casadi optimization object:
-        opts = {'ipopt.linear_solver': 'ma27', 'error_on_fail': False}
+        opts = {'ipopt.linear_solver': 'ma27', 'error_on_fail': False, 'ipopt.tol': 1e-6}
         self.optim = nlpsol('optim', 'ipopt', optim_dict, opts)
         if self.silent:
             opts['ipopt.print_level'] = 0
@@ -421,6 +421,11 @@ class optimal_traffic_scheduler:
         self.mpc_obj_p_num['p', 'Pb'] = self.Pb.T
         self.mpc_obj_p_num['p', 'Pc'] = self.Pc
         self.mpc_obj_p_num['p', 'control_delta'] = control_delta
+
+        """ Set initial condition """
+        self.mpc_obj_x_num['u', :, 'v_in_discard'] = [i/self.scaling for i in v_in_req]
+        self.mpc_obj_x_num['u', :, 'v_in_extra'] = 0
+        self.mpc_obj_x_num['u', :, 'v_out'] = [i/self.scaling for i in v_out_max]
 
         """Solve optimization problem for given conditions:"""
         optim_results = self.optim(
