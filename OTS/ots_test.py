@@ -10,7 +10,7 @@ setup_dict['s_c_max_total'] = 200  # packets
 setup_dict['scaling'] = 300
 setup_dict['dt'] = 0.04  # s
 setup_dict['N_steps'] = 20
-setup_dict['weights'] = {'control_delta': 1e0, 'send': 0, 'store': 0, 'receive': 0}
+control_delta = 1e0
 
 ots = optimal_traffic_scheduler(setup_dict)
 
@@ -42,7 +42,7 @@ s_buffer_source = [np.array([[0.0, 0.0, 0.0]]).T]*ots.N_steps
 
 
 # Call the solver:
-ots.solve(s_buffer_0, s_circuit_0, v_in_req, cv_in, v_out_max, s_buffer_source)
+ots.solve(s_buffer_0, s_circuit_0, v_in_req, cv_in, v_out_max, s_buffer_source, control_delta)
 
 
 fig, ax = plt.subplots(2, 3, sharex=True, figsize=[16, 9])

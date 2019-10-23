@@ -13,14 +13,10 @@ class optimal_traffic_scheduler:
         ----------------------------------
         v_in_max_total         - Upper limit for the sum of all incoming packets from all incoming connections (in packets/s)
         v_out_max_total        - Upper limit for the sum of all outgoing packets from all outgoing connections (in packets/s)
+        s_c_max_total          - Upper limit for the buffer size for each output buffer.
+        scaling                - Arbitrary scaling factor to facilitate solving the optimization problem.
         dt                     - Timestep (in seconds) of the optimizer.
         N_steps                - Horizon of the MPC optimization
-        weights                - Dict with the keys (and suggested values): {'control_delta': 0.1, 'send': 1, 'store': 0, 'receive': 1}
-            send                   - Focus on sending packets.
-            store                  - Focus on keeping the buffer as low as possible. Not recommended as the desired effect is achieved with 'send'.
-            receive                - Focus on receiving packets: Avoid discarding packets and allow for additional packets to be sent.
-            control_delta          - Predictions of the current node are communicated and incorporated in connected nodes. control_delta penalizes
-                                     rapid changes of the node behavior. This is important for stability of the distributed system.
         ----------------------------------
         """
         # Legacy check:
@@ -36,7 +32,6 @@ class optimal_traffic_scheduler:
 
         self.dt = setup_dict['dt']
         self.N_steps = setup_dict['N_steps']
-        self.weights = setup_dict['weights']
         self.record_values = record_values
         self.time = np.array([[0]])  # 1,1 array for consistency.
 
@@ -111,6 +106,7 @@ class optimal_traffic_scheduler:
             # Note: Pb is defined "transposed", as casadi will raise an error for n_out=1, since it cant handle row vectors.
             entry('Pb', shape=(np.sum(self.n_circuit_in), self.n_out)),
             entry('Pc', shape=(np.sum(self.n_circuit_in), np.sum(self.n_circuit_in))),
+            entry('control_delta', shape=1)
         ])
 
         """ Memory """
@@ -187,7 +183,7 @@ class optimal_traffic_scheduler:
         stage_cost += sum1(-1/(s_buffer_split)*v_out)
 
         # Control delta regularization
-        stage_cost += self.weights['control_delta']*sum1((self.mpc_uk-self.mpc_tvpk['u_prev'])**2)
+        stage_cost += self.mpc_pk['control_delta']*sum1((self.mpc_uk-self.mpc_tvpk['u_prev'])**2)
 
         # Terminal cost:
         terminal_cost = sum1(-s_buffer)
@@ -359,7 +355,7 @@ class optimal_traffic_scheduler:
         # Create function to calculate buffer memory from parameter and optimization variable trajectories
         self.aux_fun = Function('aux_fun', [mpc_obj_x, mpc_obj_p], [mpc_obj_aux])
 
-    def solve(self, s_buffer_0, s_circuit_0, v_in_req, cv_in, v_out_max, s_buffer_source, *args, debugging=True, **kwargs):
+    def solve(self, s_buffer_0, s_circuit_0, v_in_req, cv_in, v_out_max, s_buffer_source, control_delta, *args, debugging=True, **kwargs):
         """
         Solves the optimal control problem defined in optimal_traffic_scheduler.problem_formulation().
         Inputs:
@@ -371,6 +367,9 @@ class optimal_traffic_scheduler:
         - cv_in                 : Composition of incoming streams. (List with n_in elements with n_circuit_in[i] x 1 vector for list item i)
         - v_out_max             : Maximum for outgoing packet stream. Supplied by target servers (n_out x 1 vector)
         - s_buffer_source       : Memory load of source server(s) (n_in x 1 vector)
+
+        Weighting factor for the optimization problem
+        - control_delta         : Scalar value (float) to penalize large changes in the solution with respect to the previous solution.
 
         Populates the "predict" and optionally the "record" dictonaries of the class.
         - Predict: A dict with the optimized state and control trajectories of the node
@@ -401,6 +400,8 @@ class optimal_traffic_scheduler:
             assert np.allclose(self.Pb@self.Pc.T@s_circuit_0, s_buffer_0), 'Inconsistent initial conditions: s_circuit_0 and s_buffer_0 are not matching for the given setup.'
             assert np.allclose(np.array([np.sum(np.concatenate(cv_in_i)) for cv_in_i in cv_in]), self.n_in), 'Inconsistent value for cv_in. There is at least one connection, where the sum of the composition is not close to 1.'
 
+            assert type(control_delta) in [float, int], 'control delta must be supplied and be of type float or int.'
+
         """ Set initial condition """
         self.mpc_obj_p_num['x0', 's_buffer'] = s_buffer_0/self.scaling
         self.mpc_obj_p_num['x0', 's_circuit'] = s_circuit_0/self.scaling
@@ -419,6 +420,7 @@ class optimal_traffic_scheduler:
         # Note: Pb is defined "transposed", as casadi will raise an error for n_out=1, since it cant handle row vectors.
         self.mpc_obj_p_num['p', 'Pb'] = self.Pb.T
         self.mpc_obj_p_num['p', 'Pc'] = self.Pc
+        self.mpc_obj_p_num['p', 'control_delta'] = control_delta
 
         """Solve optimization problem for given conditions:"""
         optim_results = self.optim(
@@ -430,6 +432,9 @@ class optimal_traffic_scheduler:
             x0=self.mpc_obj_x_num
         )
         optim_stats = self.optim.stats()
+
+        if not optim_stats['success']:
+            raise Exception(optim_stats['success'])
 
         """ Assign solution to mpc_obj_x_num to allow easy accessibility: """
         self.mpc_obj_x_num = self.mpc_obj_x(optim_results['x'])
@@ -450,9 +455,6 @@ class optimal_traffic_scheduler:
 
         bandwidth_load_in = self.mpc_obj_aux_num['aux', :, 'bandwidth_load_in']
         bandwidth_load_out = self.mpc_obj_aux_num['aux', :, 'bandwidth_load_out']
-
-        if not optim_stats['success']:
-            raise Exception(optim_stats['success'])
 
         """ Advance time and record values """
         self.time = self.time + self.dt
