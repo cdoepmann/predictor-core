@@ -168,8 +168,9 @@ class optimal_traffic_scheduler:
         """ Objective """
         stage_cost = 0
         # Objective function with fairness formulation:
-        stage_cost += -self.mpc_uk['v_in_fair']**2+0.1/self.n_in*sum1(self.mpc_uk['dv_in']**2)
-        stage_cost += -self.mpc_uk['v_out_fair']**2+0.1/self.n_out*sum1(self.mpc_uk['dv_out']**2)
+        s_buffer_source_split = (s_buffer_source+eps)/(sum1(s_buffer_source+eps))
+        stage_cost += -10*self.mpc_uk['v_in_fair']**2+sum1(s_buffer_source_split*self.mpc_uk['dv_in']**2)
+        stage_cost += -10*self.mpc_uk['v_out_fair']**2+1/self.n_out*sum1(self.mpc_uk['dv_out']**2)
 
         # Control delta regularization
         stage_cost += self.mpc_pk['control_delta']*sum1((self.mpc_uk-self.mpc_tvpk['u_prev'])**2)
