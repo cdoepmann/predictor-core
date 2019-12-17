@@ -28,12 +28,12 @@ n_circuit_out = [len(c_i) for c_i in circuits_out]
 ots.setup(n_in, n_out, circuits_in, circuits_out)
 
 # Create some dummy data:
-s_circuit_0 = np.array([10, 10, 15]).reshape(-1, 1)
-s_buffer_0 = np.array([10, 10, 15]).reshape(-1, 1)
+s_circuit_0 = np.array([20, 10, 15]).reshape(-1, 1)
+s_buffer_0 = np.array([20, 10, 15]).reshape(-1, 1)
 
 cv_in = [[np.array([[1.]]).T, np.array([[1]]).T, np.array([[1.]]).T]]*ots.N_steps
 
-v_out_max = [np.array([[30., 20., 20.]]).T]*ots.N_steps
+v_out_max = [np.array([[30., 20., 80.]]).T]*ots.N_steps
 
 s_buffer_source = [np.array([[100.0, 0.0, 20.0]]).T]*ots.N_steps
 

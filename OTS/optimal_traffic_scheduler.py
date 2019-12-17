@@ -30,6 +30,11 @@ class optimal_traffic_scheduler:
         self.v_out_max_total = setup_dict['v_out_max_total']/self.scaling
         self.s_c_max_total = setup_dict['s_c_max_total']/self.scaling
 
+        if 'soft_constraints' in setup_dict:
+            self.soft_constraints = setup_dict['soft_constraints']
+        else:
+            self.soft_constraints = False
+
         self.dt = setup_dict['dt']
         self.N_steps = setup_dict['N_steps']
         self.record_values = record_values
@@ -168,7 +173,7 @@ class optimal_traffic_scheduler:
         # Objective function with fairness formulation:
         s_buffer_source_split = (s_buffer_source+eps)/(sum1(s_buffer_source+eps))
         stage_cost += sum1(s_buffer_source_split*self.mpc_uk['dv_in']**2)
-        stage_cost += 1/self.n_out*sum1(self.mpc_uk['dv_out']**2)
+        stage_cost += sum1(1/self.n_out*self.mpc_uk['dv_out']**2)
 
         # Control delta regularization
         stage_cost += self.mpc_pk['control_delta']*sum1((self.mpc_uk-self.mpc_tvpk['u_prev'])**2)
@@ -186,14 +191,14 @@ class optimal_traffic_scheduler:
         self.mpc_uk_lb = self.mpc_uk(0)
         self.mpc_uk_ub = self.mpc_uk(np.inf)
 
-        # Further (non-linear constraints on states and inputs)
+        # Further constraints on states and inputs:
         # Note lb and ub must be lists to be concatenated lateron
         cons_list = [
-            {'lb': [0]*self.n_in,        'eq': v_in,                    'ub': [self.v_in_max_total]*self.n_in},   # v_in cant be negative (Note: v_in is not an input)
-            {'lb': [0],                  'eq': sum1(v_in),              'ub': [self.v_in_max_total]},             # sum of all incoming traffic can't exceed v_in_max_total
-            {'lb': [0]*self.n_out,       'eq': v_out_max-v_out,         'ub': [self.v_out_max_total]*self.n_out},  # outgoing packet stream cant be greater than what is allowed individually
-            {'lb': [0],                  'eq': sum1(v_out),             'ub': [self.v_out_max_total]},             # outgoing packet stream cant be greater than what is allowed in total.
-        #    {'lb': [0]*self.n_c,         'eq': vertcat(*cv_out),        'ub': [1]*self.n_c},
+            {'lb': [0]*self.n_in,        'eq': v_in,                    'ub': [np.inf]*self.n_in},                 # v_in cant be negative
+            {'lb': [0]*self.n_out,       'eq': v_out,                   'ub': [np.inf]*self.n_out},                # v_out cant be negative
+            {'lb': [0]*self.n_out,       'eq': v_out_max-v_out,         'ub': [np.inf]*self.n_out},                # outgoing packet stream cant be greater than what is allowed individually
+            {'lb': [-np.inf],            'eq': sum1(v_in),              'ub': [self.v_in_max_total]},              # sum of all incoming traffic can't exceed v_in_max_total
+            {'lb': [-np.inf],            'eq': sum1(v_out),             'ub': [self.v_out_max_total]},             # outgoing packet stream cant be greater than what is allowed in total.
         ]
         assert np.all([type(cons_list_i['lb']) == list for cons_list_i in cons_list])
         assert np.all([type(cons_list_i['ub']) == list for cons_list_i in cons_list])
