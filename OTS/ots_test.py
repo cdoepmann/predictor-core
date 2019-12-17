@@ -33,9 +33,9 @@ s_buffer_0 = np.array([20, 10, 15]).reshape(-1, 1)
 
 cv_in = [[np.array([[1.]]).T, np.array([[1]]).T, np.array([[1.]]).T]]*ots.N_steps
 
-v_out_max = [np.array([[30., 20., 80.]]).T]*ots.N_steps
+v_out_max = [np.array([[80., 80., 80.]]).T]*ots.N_steps
 
-s_buffer_source = [np.array([[100.0, 0.0, 20.0]]).T]*ots.N_steps
+s_buffer_source = [np.array([[40.0,40.0, 40.0]]).T]*ots.N_steps
 
 
 # Call the solver:
