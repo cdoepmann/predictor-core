@@ -84,8 +84,6 @@ class optimal_traffic_scheduler:
 
         """ MPC control inputs for stage k"""
         self.mpc_uk = struct_symSX([
-            entry('v_in_fair', shape=(1, 1)),
-            entry('v_out_fair', shape=(1, 1)),
             entry('dv_in', shape=(self.n_in, 1)),
             entry('dv_out', shape=(self.n_out, 1)),
         ])
@@ -118,7 +116,7 @@ class optimal_traffic_scheduler:
 
         """ Incoming packet stream """
         # Allowed/accepted incoming packet stream:
-        v_in = self.mpc_uk['v_in_fair']-self.mpc_uk['dv_in']
+        v_in = self.v_in_max_total-self.mpc_uk['dv_in']
         # Composition of incoming stream cv_in (note that .prefix allows to use struct_symSX power indices).
         cv_in = self.mpc_tvpk.prefix['cv_in']
         # Incoming packet stream (on circuit level) (multiplying each incoming stream (scalar) with the respective composition vector)
@@ -126,7 +124,7 @@ class optimal_traffic_scheduler:
 
         """ Outgoing packet stream """
         # Outgoing packet stream:
-        v_out = self.mpc_uk['v_out_fair']-self.mpc_uk['dv_out']
+        v_out = self.v_out_max_total-self.mpc_uk['dv_out']
         # Maximum value for v_out (determined by target server):
         v_out_max = self.mpc_tvpk['v_out_max']
         # Outgoing packet stream (as list)
@@ -169,8 +167,8 @@ class optimal_traffic_scheduler:
         stage_cost = 0
         # Objective function with fairness formulation:
         s_buffer_source_split = (s_buffer_source+eps)/(sum1(s_buffer_source+eps))
-        stage_cost += -10*self.mpc_uk['v_in_fair']**2+sum1(s_buffer_source_split*self.mpc_uk['dv_in']**2)
-        stage_cost += -10*self.mpc_uk['v_out_fair']**2+1/self.n_out*sum1(self.mpc_uk['dv_out']**2)
+        stage_cost += sum1(s_buffer_source_split*self.mpc_uk['dv_in']**2)
+        stage_cost += 1/self.n_out*sum1(self.mpc_uk['dv_out']**2)
 
         # Control delta regularization
         stage_cost += self.mpc_pk['control_delta']*sum1((self.mpc_uk-self.mpc_tvpk['u_prev'])**2)
@@ -187,8 +185,6 @@ class optimal_traffic_scheduler:
         # All inputs with lower bound 0 and upper bound infinity
         self.mpc_uk_lb = self.mpc_uk(0)
         self.mpc_uk_ub = self.mpc_uk(np.inf)
-        self.mpc_uk_ub['v_in_fair'] = self.v_in_max_total
-        self.mpc_uk_ub['v_out_fair'] = self.v_out_max_total
 
         # Further (non-linear constraints on states and inputs)
         # Note lb and ub must be lists to be concatenated lateron
@@ -197,7 +193,7 @@ class optimal_traffic_scheduler:
             {'lb': [0],                  'eq': sum1(v_in),              'ub': [self.v_in_max_total]},             # sum of all incoming traffic can't exceed v_in_max_total
             {'lb': [0]*self.n_out,       'eq': v_out_max-v_out,         'ub': [self.v_out_max_total]*self.n_out},  # outgoing packet stream cant be greater than what is allowed individually
             {'lb': [0],                  'eq': sum1(v_out),             'ub': [self.v_out_max_total]},             # outgoing packet stream cant be greater than what is allowed in total.
-            {'lb': [0]*self.n_c,         'eq': vertcat(*cv_out),        'ub': [1]*self.n_c},
+        #    {'lb': [0]*self.n_c,         'eq': vertcat(*cv_out),        'ub': [1]*self.n_c},
         ]
         assert np.all([type(cons_list_i['lb']) == list for cons_list_i in cons_list])
         assert np.all([type(cons_list_i['ub']) == list for cons_list_i in cons_list])
