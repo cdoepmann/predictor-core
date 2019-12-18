@@ -182,7 +182,7 @@ class optimal_traffic_scheduler:
         stage_cost += self.mpc_pk['control_delta']*sum1((self.mpc_uk-self.mpc_tvpk['u_prev'])**2)
 
         # Terminal cost:
-        terminal_cost = 0
+        terminal_cost = 1e3*sum1(eps_s_buffer)
 
         """ Constraints"""
         # All states with lower bound 0 and upper bound infinity
@@ -215,6 +215,14 @@ class optimal_traffic_scheduler:
         cons_lb = np.concatenate([con_i['lb'] for con_i in cons_list])
         cons_ub = np.concatenate([con_i['ub'] for con_i in cons_list])
 
+        # Terminal constraints:
+        tcons_list = [
+            {'lb': [0]*self.n_out,       'eq': self.s_c_max_total+eps_s_buffer-s_buffer, 'ub': [np.inf]*self.n_out},
+        ]
+        tcons = vertcat(*[tcon_i['eq'] for tcon_i in tcons_list])
+        tcons_lb = np.concatenate([tcon_i['lb'] for tcon_i in tcons_list])
+        tcons_ub = np.concatenate([tcon_i['ub'] for tcon_i in tcons_list])
+
         """ Summarize auxiliary / intermediate variables in mpc_aux with their respective expression """
         bandwidth_load_in = sum1(v_in)/self.v_in_max_total
         bandwidth_load_out = sum1(v_out)/self.v_out_max_total
@@ -235,8 +243,11 @@ class optimal_traffic_scheduler:
         mpc_problem['cons'] = Function('cons', [self.mpc_xk, self.mpc_uk, self.mpc_eps, self.mpc_tvpk, self.mpc_pk], [cons])
         mpc_problem['cons_lb'] = cons_lb
         mpc_problem['cons_ub'] = cons_ub
+        mpc_problem['tcons'] = Function('tcons', [self.mpc_xk, self.mpc_eps], [tcons])
+        mpc_problem['tcons_lb'] = tcons_lb
+        mpc_problem['tcons_ub'] = tcons_ub
         mpc_problem['stage_cost'] = Function('stage_cost', [self.mpc_xk, self.mpc_uk, self.mpc_eps, self.mpc_tvpk, self.mpc_pk], [stage_cost])
-        mpc_problem['terminal_cost'] = Function('terminal_cost', [self.mpc_xk], [terminal_cost])
+        mpc_problem['terminal_cost'] = Function('terminal_cost', [self.mpc_xk, self.mpc_eps], [terminal_cost])
         mpc_problem['model'] = Function('model', [self.mpc_xk, self.mpc_uk, self.mpc_tvpk, self.mpc_pk], [self.mpc_xk_next])
         mpc_problem['aux'] = Function('aux', [self.mpc_xk, self.mpc_uk, self.mpc_eps, self.mpc_tvpk, self.mpc_pk], [self.mpc_aux_expr])
 
@@ -247,7 +258,7 @@ class optimal_traffic_scheduler:
         self.mpc_obj_x = mpc_obj_x = struct_symSX([
             entry('x', repeat=self.N_steps+1, struct=self.mpc_xk),
             entry('u', repeat=self.N_steps, struct=self.mpc_uk),
-            entry('eps', repeat=self.N_steps, struct=self.mpc_eps)
+            entry('eps', repeat=self.N_steps+1, struct=self.mpc_eps)
         ])
 
         # Note that:
@@ -301,7 +312,12 @@ class optimal_traffic_scheduler:
             mpc_obj_aux['aux', k] = self.mpc_problem['aux'](mpc_obj_x['x', k], mpc_obj_x['u', k], mpc_obj_x['eps', k], mpc_obj_p['tvp', k], mpc_obj_p['p'])
 
         # Terminal cost:
-        obj += self.mpc_problem['terminal_cost'](mpc_obj_x['x', -1])
+        obj += self.mpc_problem['terminal_cost'](mpc_obj_x['x', -1], mpc_obj_x['eps', -1])
+
+        # Terminal set:
+        cons.append(self.mpc_problem['tcons'](mpc_obj_x['x', -1], mpc_obj_x['eps', -1]))
+        cons_lb.append(self.mpc_problem['tcons_lb'])
+        cons_ub.append(self.mpc_problem['tcons_ub'])
 
         # Upper and lower bounds on objective x:
         self.mpc_obj_x_lb = self.mpc_obj_x(0)
