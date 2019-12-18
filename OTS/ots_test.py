@@ -5,7 +5,7 @@ import pdb
 
 setup_dict = {}
 setup_dict['v_in_max_total'] = 50  # packets / s
-setup_dict['v_out_max_total'] = 50  # packets / s
+setup_dict['v_out_max_total'] = 0  # packets / s
 setup_dict['s_c_max_total'] = 20  # packets
 setup_dict['scaling'] = 50
 setup_dict['dt'] = 0.04  # s
@@ -62,7 +62,7 @@ ax[0, 0].get_shared_y_axes().join(ax[0, 0], ax[0, 1], ax[1, 0], ax[1, 1])
 for ax_i in ax.flatten():
     ax_i.grid(which='both', linestyle='--')
     ax_i.ticklabel_format(useOffset=False)
-    ax_i.set_ylim(bottom=-1, top=np.maximum(1.2*ax_i.get_ylim()[1], 1))
+    #ax_i.set_ylim(bottom=-1, top=np.maximum(1.2*ax_i.get_ylim()[1], 1))
 
 ax[0, 0].set_title('Outgoing packets')
 ax[0, 1].set_title('Incoming packets')
