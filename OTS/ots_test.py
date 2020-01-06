@@ -6,7 +6,7 @@ import pdb
 setup_dict = {}
 setup_dict['v_in_max_total'] = 50  # packets / s
 setup_dict['v_out_max_total'] = 50  # packets / s
-setup_dict['s_c_max_total'] = 20  # packets
+setup_dict['s_c_max_total'] = 60  # packets
 setup_dict['scaling'] = 50
 setup_dict['dt'] = 0.04  # s
 setup_dict['N_steps'] = 20
@@ -21,27 +21,20 @@ circuits_out = [[1], [2], [3]]
 n_in = len(circuits_in)
 n_out = len(circuits_out)
 
-n_circuit_in = [len(c_i) for c_i in circuits_in]
-
-n_circuit_out = [len(c_i) for c_i in circuits_out]
-
 ots.setup(n_in, n_out, circuits_in, circuits_out)
 
 # Create some dummy data:
-s_circuit_0 = np.array([20, 10, 15]).reshape(-1, 1)
-s_buffer_0 = np.array([20, 10, 15]).reshape(-1, 1)
-
-cv_in = [[np.array([[1.]]).T, np.array([[1]]).T, np.array([[1.]]).T]]*ots.N_steps
+s_buffer_0 = np.array([0, 45, 45]).reshape(-1, 1)
 
 v_out_max = [np.array([[80., 80., 80.]]).T]*ots.N_steps
 
-s_buffer_source = [np.array([[40.0,40.0, 40.0]]).T]*ots.N_steps
+s_buffer_source = [np.array([[20.0,40.0, 40.0]]).T]*ots.N_steps
 
-v_in_max = np.array([50, 50, 0])
+v_in_max = np.array([50])
 
 
 # Call the solver:
-ots.solve(s_buffer_0, s_circuit_0, cv_in, v_out_max, s_buffer_source, control_delta, v_in_max)
+ots.solve(s_buffer_0, v_out_max, s_buffer_source, control_delta, v_in_max)
 
 fig, ax = plt.subplots(2, 3, sharex=True, figsize=[10, 6])
 

@@ -48,17 +48,9 @@ class optimal_traffic_scheduler:
         self.n_in = n_in
         self.n_out = n_out
 
-        self.n_circuit_in = [len(c_i) for c_i in input_circuits]
-        self.n_circuit_out = [len(c_i) for c_i in output_circuits]
-        self.n_c = np.sum(self.n_circuit_in)
 
         # Note: Pb is defined "transposed", as casadi will raise an error for n_out=1, since it cant handle row vectors.
         self.Pb = self.Pb_fun(input_circuits, output_circuits)
-        self.Pc = self.Pc_fun(input_circuits, output_circuits)
-
-        assert len(self.n_circuit_in) == self.n_in
-        assert len(self.n_circuit_out) == self.n_out
-        assert np.sum(self.n_circuit_in) == np.sum(self.n_circuit_out)
 
         self.problem_formulation()
         self.create_optim()
@@ -77,7 +69,6 @@ class optimal_traffic_scheduler:
 
         self.mpc_xk = struct_symSX([
             entry('s_buffer', shape=(self.n_out, 1)),
-            entry('s_circuit', shape=(int(np.sum(self.n_circuit_in)), 1)),
         ])
         # States at next time-step. Same structure as mpc_xk. Will be assigned expressions later on.
         self.mpc_xk_next = struct_SX(self.mpc_xk)
@@ -95,22 +86,16 @@ class optimal_traffic_scheduler:
         eps_s_buffer = self.mpc_eps['s_buffer']
 
         """ MPC time-varying parameters for stage k"""
-        # Dummy struct:
-        cv_in_struct = struct_symSX([
-            entry('c_'+str(i), shape=(self.n_circuit_in[i], 1)) for i in range(self.n_in)
-        ])
 
         self.mpc_tvpk = struct_symSX([
             entry('u_prev', struct=self.mpc_uk),
-            entry('cv_in', struct=cv_in_struct),
             entry('v_out_max', shape=(self.n_out, 1)),
             entry('s_buffer_source', shape=(self.n_in, 1)),
         ])
         """ MPC parameters for stage k"""
         self.mpc_pk = struct_symSX([
             # Note: Pb is defined "transposed", as casadi will raise an error for n_out=1, since it cant handle row vectors.
-            entry('Pb', shape=(np.sum(self.n_circuit_in), self.n_out)),
-            entry('Pc', shape=(np.sum(self.n_circuit_in), np.sum(self.n_circuit_in))),
+            entry('Pb', shape=(np.sum(self.n_in), self.n_out)),
             entry('control_delta', shape=1),
             entry('v_in_max', shape=self.n_in),
         ])
@@ -118,25 +103,17 @@ class optimal_traffic_scheduler:
         """ Memory """
         # Buffer memory
         s_buffer = self.mpc_xk['s_buffer']
-        # Circuit memory:
-        s_circuit = self.mpc_xk['s_circuit']
 
         """ Incoming packet stream """
         # Allowed/accepted incoming packet stream:
         v_in = self.v_in_max_total-self.mpc_uk['dv_in']
-        # Composition of incoming stream cv_in (note that .prefix allows to use struct_symSX power indices).
-        cv_in = self.mpc_tvpk.prefix['cv_in']
-        # Incoming packet stream (on circuit level) (multiplying each incoming stream (scalar) with the respective composition vector)
-        vc_in = vertcat(*[v_in[i]*cv_in['c_'+str(i)] for i in range(self.n_in)])
 
         """ Outgoing packet stream """
         # Outgoing packet stream:
         v_out = self.v_out_max_total-self.mpc_uk['dv_out']
         # Maximum value for v_out (determined by target server):
         v_out_max = self.mpc_tvpk['v_out_max']
-        # Outgoing packet stream (as list)
-        v_out_list = vertsplit(v_out)
-        # v_out from the previous solution:
+
 
         """ Load information """
         # memory info incoming servers
@@ -146,29 +123,15 @@ class optimal_traffic_scheduler:
         # Assignment Matrix: Which element of each input is assigned to which output buffer:
         # Note: Pb is defined "transposed", as casadi will raise an error for n_out=1, since it cant handle row vectors.
         Pb = self.mpc_pk['Pb'].T
-        # Assignment Matrix: Which input circuit is directed to which output circuit:
-        Pc = self.mpc_pk['Pc']
 
         """ System dynamics"""
         # system dynamics, constraints and objective definition:
         eps = 1e-6
-        s_tilde_next = s_buffer + self.dt*Pb@(vc_in+eps)
-        sc_tilde_next = s_circuit + self.dt*Pc@(vc_in+eps)
-
-        # Protected division. The denominator can only be zero, if the numerator is also zero. cv_out_i = 0 in that case
-        # and would be NaN without using the eps value.
-        # cv_out = s_circuit/(mtimes(Pb.T, s_buffer)+eps)
-        # cv_out = (sc_tilde_next)/(self.Pc@self.Pb.T@s_tilde_next+eps)
-        cv_out = [sc_i/(s_tilde_next[i]) for i, sc_i in enumerate(vertsplit(sc_tilde_next, np.cumsum([0]+self.n_circuit_out)))]
-        vc_out = vertcat(*[v_out_i*cv_out_i for cv_out_i, v_out_i in zip(cv_out, v_out_list)])
-
-        # vc_out = (self.Pc@Pb.T@v_out)*cv_out
+        s_tilde_next = s_buffer + self.dt*Pb@(v_in+eps)
 
         s_buffer_next = s_tilde_next - self.dt*v_out
-        s_circuit_next = sc_tilde_next - self.dt*vc_out
 
         self.mpc_xk_next['s_buffer'] = s_buffer_next
-        self.mpc_xk_next['s_circuit'] = s_circuit_next
 
         """ Objective """
         stage_cost = 0
@@ -177,7 +140,6 @@ class optimal_traffic_scheduler:
         stage_cost += sum1(s_buffer_source_split*self.mpc_uk['dv_in']**2)
         stage_cost += sum1(1/self.n_out*self.mpc_uk['dv_out']**2)
         stage_cost += 1e3*sum1(eps_s_buffer)
-        #stage_cost += 10*sum1(s_buffer)
 
         # Control delta regularization
         stage_cost += self.mpc_pk['control_delta']*sum1((self.mpc_uk-self.mpc_tvpk['u_prev'])**2)
@@ -233,9 +195,6 @@ class optimal_traffic_scheduler:
         self.mpc_aux_expr = struct_SX([
             entry('v_in', expr=v_in),
             entry('v_out', expr=v_out),
-            # entry('s_tilde_next', expr=s_tilde_next),
-            # entry('sc_tilde_next', expr=sc_tilde_next),
-            entry('cv_out', expr=vertcat(*cv_out)),
             entry('bandwidth_load_in', expr=bandwidth_load_in),
             entry('bandwidth_load_out', expr=bandwidth_load_out),
         ])
@@ -358,15 +317,13 @@ class optimal_traffic_scheduler:
         # Create function to calculate buffer memory from parameter and optimization variable trajectories
         self.aux_fun = Function('aux_fun', [mpc_obj_x, mpc_obj_p], [mpc_obj_aux])
 
-    def solve(self, s_buffer_0, s_circuit_0, cv_in, v_out_max, s_buffer_source, control_delta, v_in_max = None, debugging=True, **kwargs):
+    def solve(self, s_buffer_0, v_out_max, s_buffer_source, control_delta, v_in_max = None, debugging=True, **kwargs):
         """
         Solves the optimal control problem defined in optimal_traffic_scheduler.problem_formulation().
         Inputs:
         - s_buffer_0            : initial memory for each buffer (must be n_out x 1 vector)
-        - s_circuit_0           : intitial memory for each circuit (must be np.sum(n_circuit_out) x 1 vector)
 
         Predicted trajectories as lists with N_horizon elments, where each(!!!) list item has the following configuration:
-        - cv_in                 : Composition of incoming streams. (List with n_in elements with n_circuit_in[i] x 1 vector for list item i)
         - v_out_max             : Maximum for outgoing packet stream. Supplied by target servers (n_out x 1 vector)
         - s_buffer_source       : Memory load of source server(s) (n_in x 1 vector)
 
@@ -387,21 +344,14 @@ class optimal_traffic_scheduler:
         if debugging:
             # Type checking:
             assert type(s_buffer_0) == np.ndarray, 's_buffer_0 must be n_out x 1 vector (np.ndarray)'
-            assert type(s_circuit_0) == np.ndarray, 's_circuit_0 must be np.sum(n_circuit_out) x 1 vector (np.ndarray)'
 
-            assert type(cv_in) == list and len(cv_in) == self.N_steps, 'cv_in must be a list with N_steps={N_steps} items.'.format(N_steps=self.N_steps)
             assert type(v_out_max) == list and len(v_out_max) == self.N_steps, 'v_out_max must be a list with N_steps={N_steps} items.'.format(N_steps=self.N_steps)
             assert type(s_buffer_source) == list and len(s_buffer_source) == self.N_steps, 's_buffer_source must be a list with N_steps={N_steps} items.'.format(N_steps=self.N_steps)
             # Nested type checking:
             assert np.allclose([v_out_max_i.shape for v_out_max_i in v_out_max], (self.n_out, 1)), 'v_out_max must be a list of arrays where each element has shape ({n_out},1)'.format(n_in=self.n_out)
             assert np.allclose([s_buffer_source_i.shape for s_buffer_source_i in s_buffer_source], (self.n_in, 1)), 's_buffer_source must be a list of arrays where each element has shape ({n_in},1)'.format(n_in=self.n_in)
-            assert np.all([type(cv_in_i) == list for cv_in_i in cv_in]) and np.allclose([(len(cv_in_i), np.concatenate(cv_in_i).shape[0]) for cv_in_i in cv_in], (self.n_in, np.sum(self.n_circuit_in))), 'Each list item of cv_in must be a list with {n_circuit} elements.'.format(n_circuit=np.sum(self.n_circuit_in))
             # consistency checks:
             assert s_buffer_0.shape == (self.n_out, 1), 's_buffer_0 must be {n_out} x 1 vector (np.ndarray): Is {isshape}'.format(n_out=self.n_out, isshape=s_buffer_0.shape)
-            assert s_circuit_0.shape == (np.sum(self.n_circuit_out), 1), 's_circuit_0 must be {n_circuit} x 1 vector (np.ndarray): Is {isshape}'.format(n_circuit=np.sum(self.n_circuit_out), isshape=s_circuit_0.shape)
-            assert np.isclose(np.sum(s_buffer_0), np.sum(s_circuit_0)), 'Inconsistent initial conditions: sum of s_buffer_0 is not equal sum of s_circuit_0'
-            assert np.allclose(self.Pb@self.Pc.T@s_circuit_0, s_buffer_0), 'Inconsistent initial conditions: s_circuit_0 and s_buffer_0 are not matching for the given setup.'
-            assert np.allclose(np.array([np.sum(np.concatenate(cv_in_i)) for cv_in_i in cv_in]), self.n_in), 'Inconsistent value for cv_in. There is at least one connection, where the sum of the composition is not close to 1.'
 
             assert type(control_delta) in [float, int], 'control delta must be supplied and be of type float or int.'
             assert True if v_in_max is None else type(v_in_max) == np.ndarray, 'v_in_max must be numpy array'
@@ -409,21 +359,18 @@ class optimal_traffic_scheduler:
 
         """ Set initial condition """
         self.mpc_obj_p_num['x0', 's_buffer'] = s_buffer_0/self.scaling
-        self.mpc_obj_p_num['x0', 's_circuit'] = s_circuit_0/self.scaling
 
         """ Get previous inputs and assign to tvp u_prev after shifting"""
         self.mpc_obj_p_num['tvp', :-1, 'u_prev'] = self.mpc_obj_x_num['u', 1:]
         self.mpc_obj_p_num['tvp', -1, 'u_prev'] = self.mpc_obj_x_num['u', -1]
 
         """ Assign further parameters to tvp"""
-        self.mpc_obj_p_num['tvp', :, 'cv_in'] = [vertcat(*cv_in_i) for cv_in_i in cv_in]
         self.mpc_obj_p_num['tvp', :, 'v_out_max'] = [i/self.scaling for i in v_out_max]
         self.mpc_obj_p_num['tvp', :, 's_buffer_source'] = [i/self.scaling for i in s_buffer_source]
 
         """ Assign parameters """
         # Note: Pb is defined "transposed", as casadi will raise an error for n_out=1, since it cant handle row vectors.
         self.mpc_obj_p_num['p', 'Pb'] = self.Pb.T
-        self.mpc_obj_p_num['p', 'Pc'] = self.Pc
         self.mpc_obj_p_num['p', 'control_delta'] = control_delta
         self.mpc_obj_p_num['p', 'v_in_max'] = v_in_max if v_in_max is not None else self.v_in_max_total
 
@@ -450,12 +397,10 @@ class optimal_traffic_scheduler:
         """ Retrieve relevant trajectories """
 
         v_out = [i*self.scaling for i in self.mpc_obj_aux_num['aux', :, 'v_out']]
-        cv_out = [np.split(self.mpc_obj_aux_num['aux', k, 'cv_out'], np.cumsum(self.n_circuit_out[:-1])) for k in range(self.N_steps)]
 
         v_in = [i*self.scaling for i in self.mpc_obj_aux_num['aux', :, 'v_in']]
 
         s_buffer = [i*self.scaling for i in self.mpc_obj_x_num['x', :, 's_buffer']]
-        s_circuit = [i*self.scaling for i in self.mpc_obj_x_num['x', :, 's_circuit']]
 
         bandwidth_load_in = self.mpc_obj_aux_num['aux', :, 'bandwidth_load_in']
         bandwidth_load_out = self.mpc_obj_aux_num['aux', :, 'bandwidth_load_out']
@@ -465,12 +410,9 @@ class optimal_traffic_scheduler:
 
         self.predict = {}
         self.predict['v_in'] = v_in
-        self.predict['cv_in'] = cv_in
         self.predict['v_out'] = v_out
         self.predict['v_out_max'] = v_out_max
-        self.predict['cv_out'] = cv_out
         self.predict['s_buffer'] = s_buffer          # carefull: N_steps+1 elements
-        self.predict['s_circuit'] = s_circuit        # carefull: N_steps+1 elements
         self.predict['bandwidth_load_in'] = bandwidth_load_in
         self.predict['bandwidth_load_out'] = bandwidth_load_out
 
