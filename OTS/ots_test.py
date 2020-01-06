@@ -5,7 +5,7 @@ import pdb
 
 setup_dict = {}
 setup_dict['v_in_max_total'] = 50  # packets / s
-setup_dict['v_out_max_total'] = 0  # packets / s
+setup_dict['v_out_max_total'] = 50  # packets / s
 setup_dict['s_c_max_total'] = 20  # packets
 setup_dict['scaling'] = 50
 setup_dict['dt'] = 0.04  # s
@@ -37,9 +37,11 @@ v_out_max = [np.array([[80., 80., 80.]]).T]*ots.N_steps
 
 s_buffer_source = [np.array([[40.0,40.0, 40.0]]).T]*ots.N_steps
 
+v_in_max = np.array([50, 50, 0])
+
 
 # Call the solver:
-ots.solve(s_buffer_0, s_circuit_0, cv_in, v_out_max, s_buffer_source, control_delta)
+ots.solve(s_buffer_0, s_circuit_0, cv_in, v_out_max, s_buffer_source, control_delta, v_in_max)
 
 fig, ax = plt.subplots(2, 3, sharex=True, figsize=[10, 6])
 

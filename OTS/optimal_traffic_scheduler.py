@@ -111,7 +111,8 @@ class optimal_traffic_scheduler:
             # Note: Pb is defined "transposed", as casadi will raise an error for n_out=1, since it cant handle row vectors.
             entry('Pb', shape=(np.sum(self.n_circuit_in), self.n_out)),
             entry('Pc', shape=(np.sum(self.n_circuit_in), np.sum(self.n_circuit_in))),
-            entry('control_delta', shape=1)
+            entry('control_delta', shape=1),
+            entry('v_in_max', shape=self.n_in),
         ])
 
         """ Memory """
@@ -200,11 +201,12 @@ class optimal_traffic_scheduler:
         # Further constraints on states and inputs:
         # Note lb and ub must be lists to be concatenated lateron
         cons_list = [
-            {'lb': [0]*self.n_in,        'eq': v_in,                    'ub': [np.inf]*self.n_in},                 # v_in cant be negative
-            {'lb': [0]*self.n_out,       'eq': v_out,                   'ub': [np.inf]*self.n_out},                # v_out cant be negative
-            {'lb': [0]*self.n_out,       'eq': v_out_max-v_out,         'ub': [np.inf]*self.n_out},                # outgoing packet stream cant be greater than what is allowed individually
-            {'lb': [-np.inf],            'eq': sum1(v_in),              'ub': [self.v_in_max_total]},              # sum of all incoming traffic can't exceed v_in_max_total
-            {'lb': [-np.inf],            'eq': sum1(v_out),             'ub': [self.v_out_max_total]},             # outgoing packet stream cant be greater than what is allowed in total.
+            {'lb': [0]*self.n_in,        'eq': v_in,                             'ub': [np.inf]*self.n_in},                 # v_in must be greater than 0.
+            {'lb': [0]*self.n_in,        'eq': self.mpc_pk['v_in_max'] - v_in,   'ub': [np.inf]*self.n_in},                 # v_in must be smaller than v_in_max
+            {'lb': [0]*self.n_out,       'eq': v_out,                            'ub': [np.inf]*self.n_out},                # v_out cant be negative
+            {'lb': [0]*self.n_out,       'eq': v_out_max-v_out,                  'ub': [np.inf]*self.n_out},                # outgoing packet stream cant be greater than what is allowed individually
+            {'lb': [-np.inf],            'eq': sum1(v_in),                       'ub': [self.v_in_max_total]},              # sum of all incoming traffic can't exceed v_in_max_total
+            {'lb': [-np.inf],            'eq': sum1(v_out),                      'ub': [self.v_out_max_total]},             # outgoing packet stream cant be greater than what is allowed in total.
             {'lb': [0]*self.n_out,       'eq': self.s_c_max_total+eps_s_buffer-s_buffer, 'ub': [np.inf]*self.n_out},
         ]
         assert np.all([type(cons_list_i['lb']) == list for cons_list_i in cons_list])
@@ -356,7 +358,7 @@ class optimal_traffic_scheduler:
         # Create function to calculate buffer memory from parameter and optimization variable trajectories
         self.aux_fun = Function('aux_fun', [mpc_obj_x, mpc_obj_p], [mpc_obj_aux])
 
-    def solve(self, s_buffer_0, s_circuit_0, cv_in, v_out_max, s_buffer_source, control_delta, *args, debugging=True, **kwargs):
+    def solve(self, s_buffer_0, s_circuit_0, cv_in, v_out_max, s_buffer_source, control_delta, v_in_max = None, debugging=True, **kwargs):
         """
         Solves the optimal control problem defined in optimal_traffic_scheduler.problem_formulation().
         Inputs:
@@ -370,6 +372,9 @@ class optimal_traffic_scheduler:
 
         Weighting factor for the optimization problem
         - control_delta         : Scalar value (float) to penalize large changes in the solution with respect to the previous solution.
+
+        v_in_max limits the maximum input. This can be used to "switch-off" inputs for starting nodes of the network. Defaults to infinity (unlimited input)
+        : Scalar value or np.array with n_in elements.
 
         Populates the "predict" and optionally the "record" dictonaries of the class.
         - Predict: A dict with the optimized state and control trajectories of the node
@@ -399,6 +404,8 @@ class optimal_traffic_scheduler:
             assert np.allclose(np.array([np.sum(np.concatenate(cv_in_i)) for cv_in_i in cv_in]), self.n_in), 'Inconsistent value for cv_in. There is at least one connection, where the sum of the composition is not close to 1.'
 
             assert type(control_delta) in [float, int], 'control delta must be supplied and be of type float or int.'
+            assert True if v_in_max is None else type(v_in_max) == np.ndarray, 'v_in_max must be numpy array'
+            assert True if v_in_max is None else v_in_max.shape[0] in (1, self.n_in), 'v_in_max must be scalar or have shape (n_out,1) / (n_out,)'
 
         """ Set initial condition """
         self.mpc_obj_p_num['x0', 's_buffer'] = s_buffer_0/self.scaling
@@ -418,6 +425,7 @@ class optimal_traffic_scheduler:
         self.mpc_obj_p_num['p', 'Pb'] = self.Pb.T
         self.mpc_obj_p_num['p', 'Pc'] = self.Pc
         self.mpc_obj_p_num['p', 'control_delta'] = control_delta
+        self.mpc_obj_p_num['p', 'v_in_max'] = v_in_max if v_in_max is not None else self.v_in_max_total
 
         """Solve optimization problem for given conditions:"""
         optim_results = self.optim(
