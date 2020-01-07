@@ -101,6 +101,11 @@ class optimal_traffic_scheduler:
             entry('control_delta', shape=1),
         ])
 
+        """ MPC parameters for stage N"""
+        self.mpc_pN = struct_symSX([
+            entry('s_buffer_source_N', shape=(self.n_in,1)),
+        ])
+
         """ Memory """
         # Buffer memory
         s_buffer = self.mpc_xk['s_buffer']
@@ -193,6 +198,7 @@ class optimal_traffic_scheduler:
         # Terminal constraints:
         tcons_list = [
             {'lb': [0]*self.n_out,       'eq': self.s_c_max_total+eps_s_buffer-s_buffer, 'ub': [np.inf]*self.n_out},
+            {'lb': [0]*self.n_out,       'eq': self.mpc_pN['s_buffer_source_N']-ds_buffer_source, 'ub': [np.inf]*self.n_in}
         ]
         tcons = vertcat(*[tcon_i['eq'] for tcon_i in tcons_list])
         tcons_lb = np.concatenate([tcon_i['lb'] for tcon_i in tcons_list])
@@ -216,7 +222,7 @@ class optimal_traffic_scheduler:
         mpc_problem['cons'] = Function('cons', [self.mpc_xk, self.mpc_uk, self.mpc_eps, self.mpc_tvpk, self.mpc_pk], [cons])
         mpc_problem['cons_lb'] = cons_lb
         mpc_problem['cons_ub'] = cons_ub
-        mpc_problem['tcons'] = Function('tcons', [self.mpc_xk, self.mpc_eps], [tcons])
+        mpc_problem['tcons'] = Function('tcons', [self.mpc_xk, self.mpc_eps, self.mpc_pN], [tcons])
         mpc_problem['tcons_lb'] = tcons_lb
         mpc_problem['tcons_ub'] = tcons_ub
         mpc_problem['stage_cost'] = Function('stage_cost', [self.mpc_xk, self.mpc_uk, self.mpc_eps, self.mpc_tvpk, self.mpc_pk], [stage_cost])
@@ -243,6 +249,7 @@ class optimal_traffic_scheduler:
             entry('tvp', repeat=self.N_steps, struct=self.mpc_tvpk),
             entry('x0',  struct=self.mpc_xk),
             entry('p',   struct=self.mpc_pk),
+            entry('pN',  struct=self.mpc_pN)
         ])
 
         # Dummy struct with symbolic variables
@@ -288,7 +295,7 @@ class optimal_traffic_scheduler:
         obj += self.mpc_problem['terminal_cost'](mpc_obj_x['x', -1], mpc_obj_x['eps', -1])
 
         # Terminal set:
-        cons.append(self.mpc_problem['tcons'](mpc_obj_x['x', -1], mpc_obj_x['eps', -1]))
+        cons.append(self.mpc_problem['tcons'](mpc_obj_x['x', -1], mpc_obj_x['eps', -1], mpc_obj_p['pN']))
         cons_lb.append(self.mpc_problem['tcons_lb'])
         cons_ub.append(self.mpc_problem['tcons_ub'])
 
@@ -338,6 +345,7 @@ class optimal_traffic_scheduler:
         Predicted trajectories as lists with N_horizon elments, where each(!!!) list item has the following configuration:
         - v_out_max             : Maximum for outgoing packet stream. Supplied by target servers (n_out x 1 vector)
         - s_buffer_source       : Memory load of source server(s) (n_in x 1 vector)
+        - v_out_source          : outgoing packet stream from source node. (n_in x 1 vector)
 
         Weighting factor for the optimization problem
         - control_delta         : Scalar value (float) to penalize large changes in the solution with respect to the previous solution.
@@ -384,6 +392,7 @@ class optimal_traffic_scheduler:
         # Note: Pb is defined "transposed", as casadi will raise an error for n_out=1, since it cant handle row vectors.
         self.mpc_obj_p_num['p', 'Pb'] = self.Pb.T
         self.mpc_obj_p_num['p', 'control_delta'] = control_delta
+        self.mpc_obj_p_num['pN', 's_buffer_source_N'] = s_buffer_source[-1]/self.scaling
 
 
         """Solve optimization problem for given conditions:"""
