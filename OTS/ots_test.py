@@ -28,21 +28,23 @@ s_buffer_0 = np.array([0, 45, 45]).reshape(-1, 1)
 
 v_out_max = [np.array([[80., 80., 80.]]).T]*ots.N_steps
 
-s_buffer_source = [np.array([[20.0,40.0, 40.0]]).T]*ots.N_steps
-
-v_in_max = np.array([50])
+s_buffer_source = [np.array([[0.0,40.0, 40.0]]).T]*ots.N_steps
+v_out_source = [np.array([[0.0,40.0, 40.0]]).T]*ots.N_steps
 
 
 # Call the solver:
-ots.solve(s_buffer_0, v_out_max, s_buffer_source, control_delta, v_in_max)
+ots.solve(s_buffer_0, v_out_max, s_buffer_source, v_out_source, control_delta)
 
 fig, ax = plt.subplots(2, 3, sharex=True, figsize=[10, 6])
+
+x = range(len(ots.predict['v_out']))
 
 ax[0, 0].step(range(len(ots.predict['v_out'])), np.sum(np.concatenate(ots.predict['v_out'], axis=1), axis=0), linewidth=4, alpha=0.5, label='cumulated')
 ax[0, 0].legend()
 ax[0, 1].step(range(len(ots.predict['v_in'])), np.sum(np.concatenate(ots.predict['v_in'], axis=1), axis=0), linewidth=4, alpha=0.5, label='cumulated')
 ax[0, 1].legend()
-ax[0, 2].step(range(len(ots.predict['s_buffer'])), np.sum(np.concatenate(ots.predict['s_buffer'], axis=1), axis=0), linewidth=4, alpha=0.5)
+ax[0, 2].step(x, np.sum(np.concatenate(ots.predict['s_buffer_source_corr'], axis=1), axis=0), linewidth=4, alpha=0.5)
+ax[0, 2].step(range(len(ots.predict['s_buffer'])), np.concatenate(ots.predict['s_buffer'], axis=1).T, linewidth=4, alpha=0.5, linestyle='--')
 lines = ax[1, 0].step(range(len(ots.predict['v_out'])), np.concatenate(ots.predict['v_out'], axis=1).T, linewidth=4, alpha=0.5)
 ax[1, 0].legend(lines, np.arange(n_out), title='Connection #')
 lines = ax[1, 1].step(range(len(ots.predict['v_in'])), np.concatenate(ots.predict['v_in'], axis=1).T, linewidth=4, alpha=0.5)

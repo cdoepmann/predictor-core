@@ -69,6 +69,7 @@ class optimal_traffic_scheduler:
 
         self.mpc_xk = struct_symSX([
             entry('s_buffer', shape=(self.n_out, 1)),
+            entry('ds_buffer_source', shape=(self.n_in,1))
         ])
         # States at next time-step. Same structure as mpc_xk. Will be assigned expressions later on.
         self.mpc_xk_next = struct_SX(self.mpc_xk)
@@ -91,13 +92,13 @@ class optimal_traffic_scheduler:
             entry('u_prev', struct=self.mpc_uk),
             entry('v_out_max', shape=(self.n_out, 1)),
             entry('s_buffer_source', shape=(self.n_in, 1)),
+            entry('v_out_source', shape=(self.n_in, 1))
         ])
         """ MPC parameters for stage k"""
         self.mpc_pk = struct_symSX([
             # Note: Pb is defined "transposed", as casadi will raise an error for n_out=1, since it cant handle row vectors.
             entry('Pb', shape=(np.sum(self.n_in), self.n_out)),
             entry('control_delta', shape=1),
-            entry('v_in_max', shape=self.n_in),
         ])
 
         """ Memory """
@@ -114,10 +115,21 @@ class optimal_traffic_scheduler:
         # Maximum value for v_out (determined by target server):
         v_out_max = self.mpc_tvpk['v_out_max']
 
-
         """ Load information """
         # memory info incoming servers
         s_buffer_source = self.mpc_tvpk['s_buffer_source']
+
+        """ Source Node """
+        # Adjusted buffer memory of source:
+        ds_buffer_source = self.mpc_xk['ds_buffer_source']
+        # Predicted outgoing packet stream:
+        v_out_source = self.mpc_tvpk['v_out_source']
+        # v_out_source adjusted:
+        dv_out_source = v_in - v_out_source
+        # Corrected buffer memory of source:
+        s_buffer_source_corr = s_buffer_source - ds_buffer_source
+        # ds_buffer_source_next:
+        self.mpc_xk_next['ds_buffer_source'] = ds_buffer_source + dv_out_source*self.dt
 
         """ Circuit matching """
         # Assignment Matrix: Which element of each input is assigned to which output buffer:
@@ -126,8 +138,7 @@ class optimal_traffic_scheduler:
 
         """ System dynamics"""
         # system dynamics, constraints and objective definition:
-        eps = 1e-6
-        s_tilde_next = s_buffer + self.dt*Pb@(v_in+eps)
+        s_tilde_next = s_buffer + self.dt*Pb@(v_in)
 
         s_buffer_next = s_tilde_next - self.dt*v_out
 
@@ -136,8 +147,8 @@ class optimal_traffic_scheduler:
         """ Objective """
         stage_cost = 0
         # Objective function with fairness formulation:
-        s_buffer_source_split = (s_buffer_source+eps)/(sum1(s_buffer_source+eps))
-        stage_cost += sum1(s_buffer_source_split*self.mpc_uk['dv_in']**2)
+        #s_buffer_source_split = (s_buffer_source+eps)/(sum1(s_buffer_source+eps))
+        #stage_cost += sum1(1/self.n_in*self.mpc_uk['dv_in']**2)
         stage_cost += sum1(1/self.n_out*self.mpc_uk['dv_out']**2)
         stage_cost += 1e3*sum1(eps_s_buffer)
 
@@ -148,8 +159,8 @@ class optimal_traffic_scheduler:
         terminal_cost = 1e3*sum1(eps_s_buffer)
 
         """ Constraints"""
-        # All states with lower bound 0 and upper bound infinity
         self.mpc_xk_lb = self.mpc_xk(0)
+        self.mpc_xk_lb['ds_buffer_source'] = -np.inf
         self.mpc_xk_ub = self.mpc_xk(np.inf)
 
         # All inputs with lower bound 0 and upper bound infinity
@@ -164,12 +175,12 @@ class optimal_traffic_scheduler:
         # Note lb and ub must be lists to be concatenated lateron
         cons_list = [
             {'lb': [0]*self.n_in,        'eq': v_in,                             'ub': [np.inf]*self.n_in},                 # v_in must be greater than 0.
-            {'lb': [0]*self.n_in,        'eq': self.mpc_pk['v_in_max'] - v_in,   'ub': [np.inf]*self.n_in},                 # v_in must be smaller than v_in_max
             {'lb': [0]*self.n_out,       'eq': v_out,                            'ub': [np.inf]*self.n_out},                # v_out cant be negative
             {'lb': [0]*self.n_out,       'eq': v_out_max-v_out,                  'ub': [np.inf]*self.n_out},                # outgoing packet stream cant be greater than what is allowed individually
             {'lb': [-np.inf],            'eq': sum1(v_in),                       'ub': [self.v_in_max_total]},              # sum of all incoming traffic can't exceed v_in_max_total
             {'lb': [-np.inf],            'eq': sum1(v_out),                      'ub': [self.v_out_max_total]},             # outgoing packet stream cant be greater than what is allowed in total.
             {'lb': [0]*self.n_out,       'eq': self.s_c_max_total+eps_s_buffer-s_buffer, 'ub': [np.inf]*self.n_out},
+            {'lb': [0]*self.n_in,        'eq': s_buffer_source_corr,             'ub': [np.inf]*self.n_in}                  # Adjusted s_buffer_source must be >0
         ]
         assert np.all([type(cons_list_i['lb']) == list for cons_list_i in cons_list])
         assert np.all([type(cons_list_i['ub']) == list for cons_list_i in cons_list])
@@ -197,6 +208,7 @@ class optimal_traffic_scheduler:
             entry('v_out', expr=v_out),
             entry('bandwidth_load_in', expr=bandwidth_load_in),
             entry('bandwidth_load_out', expr=bandwidth_load_out),
+            entry('s_buffer_source_corr', expr=s_buffer_source_corr)
         ])
 
         """ Problem dictionary """
@@ -317,7 +329,7 @@ class optimal_traffic_scheduler:
         # Create function to calculate buffer memory from parameter and optimization variable trajectories
         self.aux_fun = Function('aux_fun', [mpc_obj_x, mpc_obj_p], [mpc_obj_aux])
 
-    def solve(self, s_buffer_0, v_out_max, s_buffer_source, control_delta, v_in_max = None, debugging=True, **kwargs):
+    def solve(self, s_buffer_0, v_out_max, s_buffer_source, v_out_source, control_delta, debugging=True, **kwargs):
         """
         Solves the optimal control problem defined in optimal_traffic_scheduler.problem_formulation().
         Inputs:
@@ -354,11 +366,10 @@ class optimal_traffic_scheduler:
             assert s_buffer_0.shape == (self.n_out, 1), 's_buffer_0 must be {n_out} x 1 vector (np.ndarray): Is {isshape}'.format(n_out=self.n_out, isshape=s_buffer_0.shape)
 
             assert type(control_delta) in [float, int], 'control delta must be supplied and be of type float or int.'
-            assert True if v_in_max is None else type(v_in_max) == np.ndarray, 'v_in_max must be numpy array'
-            assert True if v_in_max is None else v_in_max.shape[0] in (1, self.n_in), 'v_in_max must be scalar or have shape (n_out,1) / (n_out,)'
 
         """ Set initial condition """
         self.mpc_obj_p_num['x0', 's_buffer'] = s_buffer_0/self.scaling
+        self.mpc_obj_p_num['x0', 'ds_buffer_source'] = 0
 
         """ Get previous inputs and assign to tvp u_prev after shifting"""
         self.mpc_obj_p_num['tvp', :-1, 'u_prev'] = self.mpc_obj_x_num['u', 1:]
@@ -367,12 +378,13 @@ class optimal_traffic_scheduler:
         """ Assign further parameters to tvp"""
         self.mpc_obj_p_num['tvp', :, 'v_out_max'] = [i/self.scaling for i in v_out_max]
         self.mpc_obj_p_num['tvp', :, 's_buffer_source'] = [i/self.scaling for i in s_buffer_source]
+        self.mpc_obj_p_num['tvp', :, 'v_out_source'] = [i/self.scaling for i in v_out_source]
 
         """ Assign parameters """
         # Note: Pb is defined "transposed", as casadi will raise an error for n_out=1, since it cant handle row vectors.
         self.mpc_obj_p_num['p', 'Pb'] = self.Pb.T
         self.mpc_obj_p_num['p', 'control_delta'] = control_delta
-        self.mpc_obj_p_num['p', 'v_in_max'] = v_in_max if v_in_max is not None else self.v_in_max_total
+
 
         """Solve optimization problem for given conditions:"""
         optim_results = self.optim(
@@ -402,6 +414,8 @@ class optimal_traffic_scheduler:
 
         s_buffer = [i*self.scaling for i in self.mpc_obj_x_num['x', :, 's_buffer']]
 
+        s_buffer_source_corr = [i*self.scaling for i in self.mpc_obj_aux_num['aux', :, 's_buffer_source_corr']]
+
         bandwidth_load_in = self.mpc_obj_aux_num['aux', :, 'bandwidth_load_in']
         bandwidth_load_out = self.mpc_obj_aux_num['aux', :, 'bandwidth_load_out']
 
@@ -415,6 +429,7 @@ class optimal_traffic_scheduler:
         self.predict['s_buffer'] = s_buffer          # carefull: N_steps+1 elements
         self.predict['bandwidth_load_in'] = bandwidth_load_in
         self.predict['bandwidth_load_out'] = bandwidth_load_out
+        self.predict['s_buffer_source_corr'] = s_buffer_source_corr
 
         if self.record_values:
             if not 'record' in self.__dict__.keys():
