@@ -92,7 +92,8 @@ class optimal_traffic_scheduler:
             entry('u_prev', struct=self.mpc_uk),
             entry('v_out_max', shape=(self.n_out, 1)),
             entry('s_buffer_source', shape=(self.n_in, 1)),
-            entry('v_out_source', shape=(self.n_in, 1))
+            entry('v_out_source', shape=(self.n_in, 1)),
+            entry('dv_out_source_fix', shape=(1,))
         ])
         """ MPC parameters for stage k"""
         self.mpc_pk = struct_symSX([
@@ -178,6 +179,7 @@ class optimal_traffic_scheduler:
 
         # Further constraints on states and inputs:
         # Note lb and ub must be lists to be concatenated lateron
+        dv_out_source_fix = self.mpc_tvpk['dv_out_source_fix']
         cons_list = [
             {'lb': [0]*self.n_in,        'eq': v_in,                             'ub': [np.inf]*self.n_in},                 # v_in must be greater than 0.
             {'lb': [0]*self.n_out,       'eq': v_out,                            'ub': [np.inf]*self.n_out},                # v_out cant be negative
@@ -185,7 +187,8 @@ class optimal_traffic_scheduler:
             {'lb': [-np.inf],            'eq': sum1(v_in),                       'ub': [self.v_in_max_total]},              # sum of all incoming traffic can't exceed v_in_max_total
             {'lb': [-np.inf],            'eq': sum1(v_out),                      'ub': [self.v_out_max_total]},             # outgoing packet stream cant be greater than what is allowed in total.
             {'lb': [0]*self.n_out,       'eq': self.s_c_max_total+eps_s_buffer-s_buffer, 'ub': [np.inf]*self.n_out},
-            {'lb': [0]*self.n_in,        'eq': s_buffer_source_corr,             'ub': [np.inf]*self.n_in}                  # Adjusted s_buffer_source must be >0
+            {'lb': [0]*self.n_in,        'eq': s_buffer_source_corr,             'ub': [np.inf]*self.n_in},                 # Adjusted s_buffer_source must be >0
+            {'lb': [0]*self.n_in,        'eq': dv_out_source_fix*dv_out_source,  'ub': [0]*self.n_in},
         ]
         assert np.all([type(cons_list_i['lb']) == list for cons_list_i in cons_list])
         assert np.all([type(cons_list_i['ub']) == list for cons_list_i in cons_list])
@@ -367,13 +370,18 @@ class optimal_traffic_scheduler:
 
             assert type(v_out_max) == list and len(v_out_max) == self.N_steps, 'v_out_max must be a list with N_steps={N_steps} items.'.format(N_steps=self.N_steps)
             assert type(s_buffer_source) == list and len(s_buffer_source) == self.N_steps, 's_buffer_source must be a list with N_steps={N_steps} items.'.format(N_steps=self.N_steps)
+            assert type(v_out_source) == list and len(v_out_source) == self.N_steps, 'v_out_source must be a list with N_steps={N_steps} items.'.format(N_steps=self.N_steps)
             # Nested type checking:
             assert np.allclose([v_out_max_i.shape for v_out_max_i in v_out_max], (self.n_out, 1)), 'v_out_max must be a list of arrays where each element has shape ({n_out},1)'.format(n_in=self.n_out)
             assert np.allclose([s_buffer_source_i.shape for s_buffer_source_i in s_buffer_source], (self.n_in, 1)), 's_buffer_source must be a list of arrays where each element has shape ({n_in},1)'.format(n_in=self.n_in)
+            assert np.allclose([v_out_source_i.shape for v_out_source_i in v_out_source], (self.n_in, 1)), 'v_out_source must be a list of arrays where each element has shape ({n_in},1)'.format(n_in=self.n_in)
             # consistency checks:
             assert s_buffer_0.shape == (self.n_out, 1), 's_buffer_0 must be {n_out} x 1 vector (np.ndarray): Is {isshape}'.format(n_out=self.n_out, isshape=s_buffer_0.shape)
 
             assert type(control_delta) in [float, int], 'control delta must be supplied and be of type float or int.'
+
+            # v_out_source must be smaller than v_in_max_total!
+            assert np.all([np.sum(v_out_source_i)/self.scaling <= self.v_in_max_total for v_out_source_i in v_out_source]), 'v_out_source is exceeding the value for v_in_max_total. This is not possible.'
 
         """ Set initial condition """
         self.mpc_obj_p_num['x0', 's_buffer'] = s_buffer_0/self.scaling
@@ -387,6 +395,7 @@ class optimal_traffic_scheduler:
         self.mpc_obj_p_num['tvp', :, 'v_out_max'] = [i/self.scaling for i in v_out_max]
         self.mpc_obj_p_num['tvp', :, 's_buffer_source'] = [i/self.scaling for i in s_buffer_source]
         self.mpc_obj_p_num['tvp', :, 'v_out_source'] = [i/self.scaling for i in v_out_source]
+        self.mpc_obj_p_num['tvp', :, 'dv_out_source_fix'] = [1 if i<2 else 0 for i in range(self.N_steps)]
 
         """ Assign parameters """
         # Note: Pb is defined "transposed", as casadi will raise an error for n_out=1, since it cant handle row vectors.

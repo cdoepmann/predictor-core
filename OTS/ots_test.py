@@ -28,8 +28,8 @@ s_buffer_0 = np.array([0, 50, 6]).reshape(-1, 1)
 
 v_out_max = [np.array([[80., 80, 80.]]).T]*ots.N_steps
 
-s_buffer_source = [np.array([[3.0,5.0, 5.0]]).T]*ots.N_steps
-v_out_source = [np.array([[5.0,10.0, 12.0]]).T]*ots.N_steps
+s_buffer_source = [np.array([[0,5.0, 5.0]]).T]*ots.N_steps
+v_out_source = [np.array([[5,20.0, 20.0]]).T]*ots.N_steps
 
 
 # Call the solver:
