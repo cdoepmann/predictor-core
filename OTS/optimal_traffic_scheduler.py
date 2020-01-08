@@ -37,7 +37,7 @@ class optimal_traffic_scheduler:
 
         self.silent = silent
 
-    def setup(self, n_in=None, n_out=None, input_circuits=None, output_circuits=None):
+    def setup(self, n_in=None, n_out=None, input_circuits=None, output_circuits=None, input_type=None):
         """
         n_in:             Number of Inputs
         n_out:            Number of outputs
@@ -47,6 +47,19 @@ class optimal_traffic_scheduler:
 
         self.n_in = n_in
         self.n_out = n_out
+
+        self.dv_out_source_fix = np.zeros((self.n_in,self.N_steps))
+        if input_type is not None:
+            assert isinstance(input_type, list), 'input_type must be a list'
+            for i,input_type_i in enumerate(input_type):
+                if input_type_i == 'node':
+                    self.dv_out_source_fix[i,:2] = 1
+                elif input_type_i == 'exit':
+                    None
+                else:
+                    raise Exception('Input type must be either node or exit.')
+        else:
+            self.dv_out_source_fix[:,:2] = 1
 
 
         # Note: Pb is defined "transposed", as casadi will raise an error for n_out=1, since it cant handle row vectors.
@@ -93,7 +106,7 @@ class optimal_traffic_scheduler:
             entry('v_out_max', shape=(self.n_out, 1)),
             entry('s_buffer_source', shape=(self.n_in, 1)),
             entry('v_out_source', shape=(self.n_in, 1)),
-            entry('dv_out_source_fix', shape=(1,))
+            entry('dv_out_source_fix', shape=(self.n_in,1))
         ])
         """ MPC parameters for stage k"""
         self.mpc_pk = struct_symSX([
@@ -395,7 +408,7 @@ class optimal_traffic_scheduler:
         self.mpc_obj_p_num['tvp', :, 'v_out_max'] = [i/self.scaling for i in v_out_max]
         self.mpc_obj_p_num['tvp', :, 's_buffer_source'] = [i/self.scaling for i in s_buffer_source]
         self.mpc_obj_p_num['tvp', :, 'v_out_source'] = [i/self.scaling for i in v_out_source]
-        self.mpc_obj_p_num['tvp', :, 'dv_out_source_fix'] = [1 if i<2 else 0 for i in range(self.N_steps)]
+        self.mpc_obj_p_num['tvp', :, 'dv_out_source_fix'] = horzsplit(self.dv_out_source_fix)
 
         """ Assign parameters """
         # Note: Pb is defined "transposed", as casadi will raise an error for n_out=1, since it cant handle row vectors.

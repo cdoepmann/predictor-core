@@ -20,8 +20,9 @@ circuits_out = [[1], [2], [3]]
 
 n_in = len(circuits_in)
 n_out = len(circuits_out)
+input_type = ['exit', 'exit', 'exit']
 
-ots.setup(n_in, n_out, circuits_in, circuits_out)
+ots.setup(n_in, n_out, circuits_in, circuits_out, input_type)
 
 # Create some dummy data:
 s_buffer_0 = np.array([10, 50, 6]).reshape(-1, 1)
