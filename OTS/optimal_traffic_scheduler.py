@@ -154,7 +154,7 @@ class optimal_traffic_scheduler:
         stage_cost = 0
         # Objective function with fairness formulation:
         #s_buffer_source_split = (s_buffer_source+eps)/(sum1(s_buffer_source+eps))
-        #stage_cost += sum1(1/self.n_in*self.mpc_uk['dv_in']**2)
+        stage_cost += sum1(1/self.n_in*self.mpc_uk['dv_in']**2)
         stage_cost += sum1(1/self.n_out*self.mpc_uk['dv_out']**2)
         stage_cost += 1e3*sum1(eps_s_buffer)
 
