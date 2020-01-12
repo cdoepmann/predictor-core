@@ -106,7 +106,8 @@ class optimal_traffic_scheduler:
             entry('v_out_max', shape=(self.n_out, 1)),
             entry('s_buffer_source', shape=(self.n_in, 1)),
             entry('v_out_source', shape=(self.n_in, 1)),
-            entry('dv_out_source_fix', shape=(self.n_in,1))
+            entry('dv_out_source_fix', shape=(self.n_in,1)),
+            entry('k'), #current timestep of optimization
         ])
         """ MPC parameters for stage k"""
         self.mpc_pk = struct_symSX([
@@ -167,9 +168,10 @@ class optimal_traffic_scheduler:
         stage_cost = 0
         # Objective function with fairness formulation:
         #s_buffer_source_split = (s_buffer_source+eps)/(sum1(s_buffer_source+eps))
-        stage_cost += sum1(1/self.n_in*self.mpc_uk['dv_in']**2)
-        stage_cost += sum1(1/self.n_out*self.mpc_uk['dv_out']**2)
-        stage_cost += 1e3*sum1(eps_s_buffer)
+        k = self.mpc_tvpk['k']
+        stage_cost += sum1(2/(3**k*self.n_in)*self.mpc_uk['dv_in']**2)
+        stage_cost += sum1(1/(3**k*self.n_out)*self.mpc_uk['dv_out']**2)
+        #stage_cost += 1e3*sum1(eps_s_buffer)
 
         # Control delta regularization
         stage_cost += self.mpc_pk['control_delta']*sum1((self.mpc_uk-self.mpc_tvpk['u_prev'])**2)
@@ -342,7 +344,7 @@ class optimal_traffic_scheduler:
 
         # TODO: Make optimization option available to user.
         # Create casadi optimization object:
-        opts = {'ipopt.linear_solver': 'ma27', 'error_on_fail': False, 'ipopt.tol': 1e-6}
+        opts = {'ipopt.linear_solver': 'mumps', 'error_on_fail': False, 'ipopt.tol': 1e-9}
         self.optim = nlpsol('optim', 'ipopt', optim_dict, opts)
         if self.silent:
             opts['ipopt.print_level'] = 0
@@ -409,6 +411,7 @@ class optimal_traffic_scheduler:
         self.mpc_obj_p_num['tvp', :, 's_buffer_source'] = [i/self.scaling for i in s_buffer_source]
         self.mpc_obj_p_num['tvp', :, 'v_out_source'] = [i/self.scaling for i in v_out_source]
         self.mpc_obj_p_num['tvp', :, 'dv_out_source_fix'] = horzsplit(self.dv_out_source_fix)
+        self.mpc_obj_p_num['tvp', :, 'k'] = vertsplit(np.arange(self.N_steps)+1)
 
         """ Assign parameters """
         # Note: Pb is defined "transposed", as casadi will raise an error for n_out=1, since it cant handle row vectors.

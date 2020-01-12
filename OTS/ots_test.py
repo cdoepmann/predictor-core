@@ -4,12 +4,12 @@ from optimal_traffic_scheduler import optimal_traffic_scheduler
 import pdb
 
 setup_dict = {}
-setup_dict['v_in_max_total'] = 50  # packets / s
-setup_dict['v_out_max_total'] = 50  # packets / s
+setup_dict['v_in_max_total'] = 60  # packets / s
+setup_dict['v_out_max_total'] = 60  # packets / s
 setup_dict['s_c_max_total'] = 50  # packets
 setup_dict['scaling'] = 50
 setup_dict['dt'] = 0.04  # s
-setup_dict['N_steps'] = 20
+setup_dict['N_steps'] = 10
 control_delta = 0
 
 ots = optimal_traffic_scheduler(setup_dict)
@@ -25,11 +25,11 @@ input_type = ['exit', 'exit', 'exit']
 ots.setup(n_in, n_out, circuits_in, circuits_out, input_type)
 
 # Create some dummy data:
-s_buffer_0 = np.array([10, 50, 6]).reshape(-1, 1)
+s_buffer_0 = np.array([3, 30, 1]).reshape(-1, 1)
 
 v_out_max = [np.array([[80., 80, 80.]]).T]*ots.N_steps
 
-s_buffer_source = [np.array([[0,5.0, 5.0]]).T]*ots.N_steps
+s_buffer_source = [np.array([[0,0.0, 0.0]]).T]*ots.N_steps
 v_out_source = [np.array([[0,20.0, 20.0]]).T]*ots.N_steps
 
 
