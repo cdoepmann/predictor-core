@@ -63,6 +63,8 @@ class optimal_traffic_scheduler:
 
         # It can be shown that 1/3 is the required factor to prioritize the previous timestep.
         self.time_fac = np.maximum(1/(3**(np.arange(self.N_steps))),1e-6)
+        # To test previous method:
+        #self.time_fac = np.ones(self.N_steps)
 
 
         # Note: Pb is defined "transposed", as casadi will raise an error for n_out=1, since it cant handle row vectors.
@@ -347,7 +349,7 @@ class optimal_traffic_scheduler:
 
         # TODO: Make optimization option available to user.
         # Create casadi optimization object:
-        opts = {'ipopt.linear_solver': 'mumps', 'error_on_fail': False, 'ipopt.tol': 1e-9}
+        opts = {'ipopt.linear_solver': 'ma27', 'error_on_fail': False, 'ipopt.tol': 1e-9}
         self.optim = nlpsol('optim', 'ipopt', optim_dict, opts)
         if self.silent:
             opts['ipopt.print_level'] = 0
