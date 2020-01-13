@@ -175,14 +175,14 @@ class optimal_traffic_scheduler:
         #s_buffer_source_split = (s_buffer_source+eps)/(sum1(s_buffer_source+eps))
         time_fac = self.mpc_tvpk['time_fac']
         stage_cost += sum1(time_fac/(self.n_in)*self.mpc_uk['dv_in']**2)
-        stage_cost += 1e3*sum1(time_fac/(self.n_out)*self.mpc_uk['dv_out']**2)
-        stage_cost += 1e3*sum1(eps_s_buffer)
+        stage_cost += sum1(time_fac/(self.n_out)*self.mpc_uk['dv_out']**2)
+        stage_cost += 1e5*sum1(eps_s_buffer)
 
         # Control delta regularization
         stage_cost += self.mpc_pk['control_delta']*sum1((self.mpc_uk-self.mpc_tvpk['u_prev'])**2)
 
         # Terminal cost:
-        terminal_cost = 1e3*sum1(eps_s_buffer)
+        terminal_cost = 1e5*sum1(eps_s_buffer)
 
         """ Constraints"""
         self.mpc_xk_lb = self.mpc_xk(0)
@@ -349,7 +349,7 @@ class optimal_traffic_scheduler:
 
         # TODO: Make optimization option available to user.
         # Create casadi optimization object:
-        opts = {'ipopt.linear_solver': 'ma27', 'error_on_fail': False, 'ipopt.tol': 1e-9}
+        opts = {'ipopt.linear_solver': 'ma27', 'error_on_fail': False, 'ipopt.tol': 1e-10}
         self.optim = nlpsol('optim', 'ipopt', optim_dict, opts)
         if self.silent:
             opts['ipopt.print_level'] = 0
@@ -436,8 +436,8 @@ class optimal_traffic_scheduler:
         )
         optim_stats = self.optim.stats()
 
-        if not optim_stats['success']:
-            raise Exception(optim_stats['success'])
+        # if not optim_stats['success']:
+        #     raise Exception(optim_stats['success'])
 
         """ Assign solution to mpc_obj_x_num to allow easy accessibility: """
         self.mpc_obj_x_num = self.mpc_obj_x(optim_results['x'])
