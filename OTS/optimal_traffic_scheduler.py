@@ -175,8 +175,8 @@ class optimal_traffic_scheduler:
         #s_buffer_source_split = (s_buffer_source+eps)/(sum1(s_buffer_source+eps))
         time_fac = self.mpc_tvpk['time_fac']
         stage_cost += sum1(time_fac/(self.n_in)*self.mpc_uk['dv_in']**2)
-        stage_cost += sum1(time_fac/(self.n_out)*self.mpc_uk['dv_out']**2)
-        #stage_cost += 1e3*sum1(eps_s_buffer)
+        stage_cost += 1e3*sum1(time_fac/(self.n_out)*self.mpc_uk['dv_out']**2)
+        stage_cost += 1e3*sum1(eps_s_buffer)
 
         # Control delta regularization
         stage_cost += self.mpc_pk['control_delta']*sum1((self.mpc_uk-self.mpc_tvpk['u_prev'])**2)
