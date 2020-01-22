@@ -174,7 +174,7 @@ class optimal_traffic_scheduler:
         # Objective function with fairness formulation:
         #s_buffer_source_split = (s_buffer_source+eps)/(sum1(s_buffer_source+eps))
         time_fac = self.mpc_tvpk['time_fac']
-        stage_cost += sum1(time_fac/(self.n_in)*self.mpc_uk['dv_in']**2)
+        stage_cost += 10*sum1(time_fac/(self.n_in)*self.mpc_uk['dv_in']**2)
         stage_cost += sum1(time_fac/(self.n_out)*self.mpc_uk['dv_out']**2)
         stage_cost += 1e5*sum1(eps_s_buffer)
 
@@ -349,7 +349,7 @@ class optimal_traffic_scheduler:
 
         # TODO: Make optimization option available to user.
         # Create casadi optimization object:
-        opts = {'ipopt.linear_solver': 'ma27', 'error_on_fail': False, 'ipopt.tol': 1e-10}
+        opts = {'ipopt.linear_solver': 'ma27', 'error_on_fail': False, 'ipopt.tol': 1e-8, 'ipopt.max_iter': 300}
         self.optim = nlpsol('optim', 'ipopt', optim_dict, opts)
         if self.silent:
             opts['ipopt.print_level'] = 0
